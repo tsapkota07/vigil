@@ -24,11 +24,14 @@ export default function Landing() {
       <nav className="relative z-10 flex items-center justify-between px-12 py-5 border-b border-white/5">
         <div className="font-mono text-xl font-bold">SAT<span className="text-blue-500">sec</span></div>
         <div className="hidden md:flex gap-8">
-          {['Features', 'Dashboard', 'Pricing', 'Docs'].map(l => (
-            <a key={l} href="#" className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors">{l}</a>
-          ))}
+          <span className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Features</span>
+          <span onClick={() => navigate('/dashboard')} className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Dashboard</span>
+          <span className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Pricing</span>
+          <span className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Docs</span>
         </div>
-        <button className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
           Get Started
         </button>
       </nav>
@@ -64,7 +67,7 @@ export default function Landing() {
             onClick={handleScan}
             className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-7 transition-colors whitespace-nowrap"
           >
-            Run Audit →
+            Run Audit
           </button>
         </div>
         <p className="text-xs text-[#3a5068] font-mono">// no signup required — instant results</p>
@@ -74,9 +77,9 @@ export default function Landing() {
       <div className="relative z-10 flex justify-center gap-3 px-6 pt-12 flex-wrap">
         {[
           { score: 94, label: 'Performance', color: 'text-green-400' },
-          { score: 88, label: 'SEO',         color: 'text-green-400' },
+          { score: 88, label: 'SEO', color: 'text-green-400' },
           { score: 61, label: 'Accessibility', color: 'text-amber-400' },
-          { score: 43, label: 'Security',    color: 'text-red-400' },
+          { score: 43, label: 'Security', color: 'text-red-400' },
         ].map(({ score, label, color }) => (
           <div key={label} className="bg-white/[0.03] border border-white/[0.07] rounded-xl px-6 py-5 w-40 text-center hover:-translate-y-1 transition-transform">
             <div className={`text-3xl font-mono font-bold mb-1 ${color}`}>{score}</div>

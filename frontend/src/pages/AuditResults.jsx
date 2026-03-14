@@ -113,7 +113,7 @@ export default function AuditResults() {
             <p className="text-sm text-[#4a6070]">Set up scheduled monitoring and get alerted the moment a score drops.</p>
           </div>
           <div className="flex gap-3 flex-shrink-0">
-            <button className="border border-white/10 hover:border-white/25 text-[#8899aa] text-sm px-4 py-2 rounded-lg transition-all">View Trends</button>
+            <button onClick={() => navigate('/dashboard')} className="border border-white/10 hover:border-white/25 text-[#8899aa] text-sm px-4 py-2 rounded-lg transition-all">View Trends</button>
             <button className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">Schedule → Every 6hrs</button>
           </div>
         </div>
