@@ -1,37 +1,21 @@
-# IntelliJ
-.idea/
-*.iml
-out/
-
-# macOS
-.DS_Store
-
-# Windows
-Thumbs.db
-Desktop.ini
-
+# Database
+vigil.db
+ 
+# Environment variables — NEVER commit this
+.env
+ 
 # Python
 __pycache__/
-*.pyc
-.venv/
+*.py[cod]
+*.pyo
+.Python
+env/
 venv/
-.env
-
-# Backend
-backend/.env
-backend/vigil.db
-
-# Node
-frontend/node_modules/
-frontend/dist/
-frontend/build/
-
-# Logs
-*.log
-
-
-.env
-vigil.db
-__pycache__/
-*.pyc
 .venv/
+ 
+# VS Code
+.vscode/
+ 
+# Mac
+.DS_Store
+ 
