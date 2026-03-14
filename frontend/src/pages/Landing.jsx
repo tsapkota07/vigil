@@ -6,7 +6,7 @@ export default function Landing() {
   const navigate = useNavigate()
 
   const handleScan = () => {
-    if (url.trim()) navigate('/results')
+    if (url.trim()) navigate('/scanning', { state: { url } })
   }
 
   return (
@@ -24,7 +24,7 @@ export default function Landing() {
       <nav className="relative z-10 flex items-center justify-between px-12 py-5 border-b border-white/5">
         <div className="font-mono text-xl font-bold">SAT<span className="text-blue-500">sec</span></div>
         <div className="hidden md:flex gap-8">
-          <span className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Features</span>
+          <span onClick={() => navigate('/features')} className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Features</span>
           <span onClick={() => navigate('/dashboard')} className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Dashboard</span>
           <span className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Pricing</span>
           <span className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Docs</span>
