@@ -1,53 +1,114 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend
+  Tooltip, ResponsiveContainer,
 } from 'recharts'
+import { getRecentAudits, getHistory } from '../api'
+import { useAuth } from '../contexts/AuthContext'
+import AuthModal from '../components/AuthModal'
 
-const data = [
-  { date: 'Mar 6',  performance: 91, seo: 85, accessibility: 72, security: 40 },
-  { date: 'Mar 7',  performance: 89, seo: 86, accessibility: 70, security: 40 },
-  { date: 'Mar 8',  performance: 92, seo: 84, accessibility: 68, security: 42 },
-  { date: 'Mar 9',  performance: 88, seo: 87, accessibility: 65, security: 41 },
-  { date: 'Mar 10', performance: 60, seo: 80, accessibility: 63, security: 38 },
-  { date: 'Mar 11', performance: 62, seo: 81, accessibility: 61, security: 40 },
-  { date: 'Mar 12', performance: 90, seo: 86, accessibility: 61, security: 42 },
-  { date: 'Mar 13', performance: 94, seo: 88, accessibility: 61, security: 43 },
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+const SCORE_DEFS = [
+  { key: 'performance',   label: 'Performance',   color: '#22c55e' },
+  { key: 'seo',           label: 'SEO',           color: '#3b82f6' },
+  { key: 'accessibility', label: 'Accessibility', color: '#f59e0b' },
+  { key: 'security',      label: 'Security',      color: '#ef4444' },
 ]
 
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-[#0d1520] border border-white/10 rounded-xl p-4 text-xs font-mono">
-        <p className="text-[#7a9ab8] mb-2">{label}</p>
-        {payload.map(p => (
-          <p key={p.name} style={{ color: p.color }} className="mb-1">
-            {p.name}: <span className="font-bold">{p.value}</span>
-          </p>
-        ))}
-      </div>
-    )
-  }
-  return null
+function scoreColor(v) {
+  if (v >= 80) return 'text-green-400'
+  if (v >= 60) return 'text-amber-400'
+  return 'text-red-400'
 }
 
+function fmtDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function fmtDateShort(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+const CustomTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-[#0d1520] border border-white/10 rounded-xl p-4 text-xs font-mono">
+      <p className="text-[#7a9ab8] mb-2">{label}</p>
+      {payload.map(p => (
+        <p key={p.name} style={{ color: p.color }} className="mb-1">
+          {p.name}: <span className="font-bold">{p.value}</span>
+        </p>
+      ))}
+    </div>
+  )
+}
+
+// ─── component ──────────────────────────────────────────────────────────────
+
 export default function Dashboard() {
-  const navigate = useNavigate()
-  const [active, setActive] = useState('all')
+  const navigate  = useNavigate()
+  const location  = useLocation()
+  const { isLoggedIn, user, logout } = useAuth()
 
-  const latest = data[data.length - 1]
-  const prev = data[data.length - 2]
+  const [recentAudits, setRecentAudits] = useState([])
+  const [history,      setHistory]      = useState([])
+  const [selectedUrl,  setSelectedUrl]  = useState(location.state?.url || null)
+  const [activeLine,   setActiveLine]   = useState('all')
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState(null)
+  const [authModal,    setAuthModal]    = useState(false)
+  const [pendingNav,   setPendingNav]   = useState(null)
 
-  const scores = [
-    { key: 'performance', label: 'Performance', color: '#22c55e', value: latest.performance, prev: prev.performance },
-    { key: 'seo',         label: 'SEO',         color: '#3b82f6', value: latest.seo,         prev: prev.seo },
-    { key: 'accessibility', label: 'Accessibility', color: '#f59e0b', value: latest.accessibility, prev: prev.accessibility },
-    { key: 'security',   label: 'Security',    color: '#ef4444', value: latest.security,    prev: prev.security },
-  ]
+  const openSettings = () => {
+    if (isLoggedIn) {
+      navigate('/settings', { state: { url: selectedUrl } })
+    } else {
+      setPendingNav(() => () => navigate('/settings', { state: { url: selectedUrl } }))
+      setAuthModal(true)
+    }
+  }
 
-  const visibleLines = active === 'all' ? scores.map(s => s.key) : [active]
+  // Unique audited URLs for the site selector
+  const auditedUrls = [...new Set(recentAudits.map(r => r.url))]
 
+  // ── Fetch all recent audits on mount ──────────────────────────────────────
+  useEffect(() => {
+    getRecentAudits(30)
+      .then(records => {
+        setRecentAudits(records)
+        // Auto-select the most recently audited URL if none provided
+        if (!selectedUrl && records.length > 0) {
+          setSelectedUrl(records[0].url)
+        }
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  // ── Fetch trend history whenever selectedUrl changes ──────────────────────
+  useEffect(() => {
+    if (!selectedUrl) return
+    getHistory(selectedUrl, 20)
+      .then(records => {
+        const chartData = records.slice().reverse().map(r => ({
+          date:          fmtDateShort(r.created_at),
+          performance:   r.scores.performance,
+          seo:           r.scores.seo,
+          accessibility: r.scores.accessibility,
+          security:      r.scores.security,
+        }))
+        setHistory(chartData)
+      })
+      .catch(() => setHistory([]))
+  }, [selectedUrl])
+
+  const latest  = history[history.length - 1]
+  const prev    = history[history.length - 2]
+  const visibleLines = activeLine === 'all' ? SCORE_DEFS.map(s => s.key) : [activeLine]
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#080c14] text-[#e8edf5] font-sans">
 
@@ -62,125 +123,218 @@ export default function Dashboard() {
       {/* Nav */}
       <nav className="relative z-10 flex items-center justify-between px-12 py-4 border-b border-white/[0.06]">
         <div className="font-mono text-lg font-bold cursor-pointer" onClick={() => navigate('/')}>
-         SAT<span className="text-blue-500">sec</span>
+          SAT<span className="text-blue-500">sec</span>
         </div>
         <div className="flex items-center gap-2 bg-white/[0.04] border border-white/[0.08] rounded-lg px-4 py-2 font-mono text-xs text-[#7a9ab8]">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          45press.com
+          {selectedUrl || 'no site selected'}
         </div>
         <div className="flex gap-3">
-         <button onClick={() => navigate('/settings')} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
+          <button onClick={openSettings}
+            className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
             Settings
-         </button>
-         <button onClick={() => navigate('/results')} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
-            Latest Report
-         </button>
-         <button onClick={() => navigate('/')} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          </button>
+          {isLoggedIn ? (
+            <button onClick={logout}
+              className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
+              Sign out ({user.username})
+            </button>
+          ) : (
+            <button onClick={() => navigate('/login')}
+              className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
+              Sign in
+            </button>
+          )}
+          <button onClick={() => navigate('/')}
+            className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
             + New Audit
-         </button>
+          </button>
         </div>
       </nav>
 
       <div className="relative z-10 max-w-5xl mx-auto px-6 py-10">
 
         {/* Header */}
-        <div className="mb-8">
-          <h2 className="text-xl font-medium text-[#f0f4fa] mb-1">Trend Dashboard</h2>
-          <p className="text-sm text-[#4a6070] font-mono">// 8-day score history · 45press.com</p>
-        </div>
-
-        {/* Score Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-          {scores.map(({ key, label, color, value, prev: p }) => {
-            const diff = value - p
-            return (
-              <div
-                key={key}
-                onClick={() => setActive(active === key ? 'all' : key)}
-                className={`bg-white/[0.03] border rounded-2xl p-5 cursor-pointer transition-all ${
-                  active === key ? 'border-white/20 bg-white/[0.06]' : 'border-white/[0.07] hover:border-white/15'
-                }`}
-              >
-                <div className="text-3xl font-mono font-bold mb-1" style={{ color }}>{value}</div>
-                <div className="text-xs text-[#8899aa] mb-2">{label}</div>
-                <div className={`text-xs font-mono ${diff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {diff >= 0 ? '▲' : '▼'} {Math.abs(diff)} from yesterday
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Alert Banner */}
-        <div className="bg-amber-500/[0.06] border border-amber-500/20 rounded-xl px-5 py-3 mb-6 flex items-center gap-3">
-          <span className="text-amber-400 text-sm">⚠</span>
-          <p className="text-sm text-[#c8a84a]">
-            <span className="font-medium">Performance dropped 28 points</span> on Mar 10 at 2:14 AM — likely caused by a deploy. Recovered by Mar 12.
-          </p>
-        </div>
-
-        {/* Chart */}
-        <div className="bg-white/[0.025] border border-white/[0.06] rounded-2xl p-6 mb-6">
-          <div className="flex items-center justify-between mb-6">
-            <p className="text-xs font-mono text-[#8899aa] uppercase tracking-widest">Score History</p>
-            <div className="flex gap-2">
-              {['all', ...scores.map(s => s.key)].map(k => (
-                <button
-                  key={k}
-                  onClick={() => setActive(k)}
-                  className={`text-xs px-3 py-1 rounded-full transition-all font-mono ${
-                    active === k
-                      ? 'bg-white/10 text-white'
-                      : 'text-[#4a6070] hover:text-[#8899aa]'
-                  }`}
-                >
-                  {k}
-                </button>
-              ))}
-            </div>
+        <div className="flex items-start justify-between mb-8">
+          <div>
+            <h2 className="text-xl font-medium text-[#f0f4fa] mb-1">Performance Dashboard</h2>
+            <p className="text-sm text-[#4a6070] font-mono">
+              // {recentAudits.length} audit{recentAudits.length !== 1 ? 's' : ''} across {auditedUrls.length} site{auditedUrls.length !== 1 ? 's' : ''}
+            </p>
           </div>
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-              <XAxis dataKey="date" tick={{ fill: '#4a6070', fontSize: 11, fontFamily: 'monospace' }} axisLine={false} tickLine={false} />
-              <YAxis domain={[0, 100]} tick={{ fill: '#4a6070', fontSize: 11, fontFamily: 'monospace' }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CustomTooltip />} />
-              {scores.map(({ key, color }) =>
-                visibleLines.includes(key) && (
-                  <Line
-                    key={key}
-                    type="monotone"
-                    dataKey={key}
-                    stroke={color}
-                    strokeWidth={2}
-                    dot={{ fill: color, r: 3 }}
-                    activeDot={{ r: 5 }}
-                  />
-                )
-              )}
-            </LineChart>
-          </ResponsiveContainer>
         </div>
 
-        {/* Audit Log */}
-        <div className="bg-white/[0.025] border border-white/[0.06] rounded-2xl p-6">
-          <p className="text-xs font-mono text-[#8899aa] uppercase tracking-widest mb-4">Recent Audits</p>
-          {data.slice().reverse().slice(0, 5).map((d, i) => (
-            <div key={i} className="flex items-center justify-between py-3 border-b border-white/[0.04] last:border-0">
-              <div className="flex items-center gap-3">
-                <span className="w-2 h-2 rounded-full bg-green-400" />
-                <span className="text-sm text-[#8899aa] font-mono">{d.date} · Auto scan</span>
+        {loading && (
+          <div className="text-center py-20 text-[#4a6070] font-mono text-sm animate-pulse">// loading audits...</div>
+        )}
+
+        {error && (
+          <div className="bg-red-500/[0.06] border border-red-500/20 rounded-xl px-5 py-4 text-sm text-red-400 font-mono mb-6">
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && recentAudits.length === 0 && (
+          <div className="text-center py-24">
+            <p className="text-[#4a6070] font-mono text-sm mb-4">// no audits yet</p>
+            <button onClick={() => navigate('/')}
+              className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-6 py-2.5 rounded-lg transition-colors">
+              Run your first audit →
+            </button>
+          </div>
+        )}
+
+        {!loading && recentAudits.length > 0 && (
+          <>
+            {/* Site Selector */}
+            {auditedUrls.length > 1 && (
+              <div className="flex gap-2 flex-wrap mb-6">
+                {auditedUrls.map(u => (
+                  <button
+                    key={u}
+                    onClick={() => { setSelectedUrl(u); setActiveLine('all') }}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-mono transition-all border ${
+                      selectedUrl === u
+                        ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
+                        : 'bg-white/[0.03] border-white/[0.08] text-[#4a6070] hover:text-[#8899aa]'
+                    }`}
+                  >
+                    {u.replace(/^https?:\/\//, '')}
+                  </button>
+                ))}
               </div>
-              <div className="flex gap-4 text-xs font-mono">
-                <span className="text-green-400">{d.performance}</span>
-                <span className="text-blue-400">{d.seo}</span>
-                <span className="text-amber-400">{d.accessibility}</span>
-                <span className="text-red-400">{d.security}</span>
+            )}
+
+            {/* Score Cards — latest scores for selected URL */}
+            {latest && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                {SCORE_DEFS.map(({ key, label, color }) => {
+                  const value = latest[key]
+                  const diff  = prev ? value - prev[key] : null
+                  return (
+                    <div
+                      key={key}
+                      onClick={() => setActiveLine(activeLine === key ? 'all' : key)}
+                      className={`bg-white/[0.03] border rounded-2xl p-5 cursor-pointer transition-all ${
+                        activeLine === key ? 'border-white/20 bg-white/[0.06]' : 'border-white/[0.07] hover:border-white/15'
+                      }`}
+                    >
+                      <div className="text-3xl font-mono font-bold mb-1" style={{ color }}>{value}</div>
+                      <div className="text-xs text-[#8899aa] mb-2">{label}</div>
+                      {diff !== null && (
+                        <div className={`text-xs font-mono ${diff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {diff >= 0 ? '▲' : '▼'} {Math.abs(diff)} from last
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Trend Chart */}
+            {history.length >= 2 && (
+              <div className="bg-white/[0.025] border border-white/[0.06] rounded-2xl p-6 mb-6">
+                <div className="flex items-center justify-between mb-6">
+                  <p className="text-xs font-mono text-[#8899aa] uppercase tracking-widest">Score History</p>
+                  <div className="flex gap-2">
+                    {['all', ...SCORE_DEFS.map(s => s.key)].map(k => (
+                      <button key={k} onClick={() => setActiveLine(k)}
+                        className={`text-xs px-3 py-1 rounded-full transition-all font-mono ${
+                          activeLine === k ? 'bg-white/10 text-white' : 'text-[#4a6070] hover:text-[#8899aa]'
+                        }`}>
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={280}>
+                  <LineChart data={history}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                    <XAxis dataKey="date" tick={{ fill: '#4a6070', fontSize: 11, fontFamily: 'monospace' }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} tick={{ fill: '#4a6070', fontSize: 11, fontFamily: 'monospace' }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<CustomTooltip />} />
+                    {SCORE_DEFS.map(({ key, color }) =>
+                      visibleLines.includes(key) && (
+                        <Line key={key} type="monotone" dataKey={key} stroke={color}
+                          strokeWidth={2} dot={{ fill: color, r: 3 }} activeDot={{ r: 5 }} />
+                      )
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {history.length === 1 && (
+              <div className="bg-white/[0.025] border border-white/[0.06] rounded-2xl p-6 mb-6 text-center">
+                <p className="text-[#4a6070] font-mono text-xs">// run at least 2 audits on this site to see trend chart</p>
+              </div>
+            )}
+
+            {/* Recent Audits Table */}
+            <div className="bg-white/[0.025] border border-white/[0.06] rounded-2xl p-6">
+              <p className="text-xs font-mono text-[#8899aa] uppercase tracking-widest mb-4">Recent Audits</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs font-mono">
+                  <thead>
+                    <tr className="text-[#3a5068] border-b border-white/[0.04]">
+                      <th className="text-left pb-3 font-normal">Site</th>
+                      <th className="text-left pb-3 font-normal">Scanned</th>
+                      <th className="text-center pb-3 font-normal text-green-400">Perf</th>
+                      <th className="text-center pb-3 font-normal text-blue-400">SEO</th>
+                      <th className="text-center pb-3 font-normal text-amber-400">Access</th>
+                      <th className="text-center pb-3 font-normal text-red-400">Sec</th>
+                      <th className="text-center pb-3 font-normal">Overall</th>
+                      <th className="pb-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentAudits.slice(0, 15).map(r => (
+                      <tr key={r.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                        <td className="py-3 text-[#7a9ab8] max-w-[160px] truncate">
+                          {r.url.replace(/^https?:\/\//, '')}
+                        </td>
+                        <td className="py-3 text-[#3a5068]">{fmtDate(r.created_at)}</td>
+                        <td className={`py-3 text-center font-bold ${scoreColor(r.scores.performance)}`}>{r.scores.performance}</td>
+                        <td className={`py-3 text-center font-bold ${scoreColor(r.scores.seo)}`}>{r.scores.seo}</td>
+                        <td className={`py-3 text-center font-bold ${scoreColor(r.scores.accessibility)}`}>{r.scores.accessibility}</td>
+                        <td className={`py-3 text-center font-bold ${scoreColor(r.scores.security)}`}>{r.scores.security}</td>
+                        <td className={`py-3 text-center font-bold ${scoreColor(r.scores.overall)}`}>{r.scores.overall}</td>
+                        <td className="py-3 text-right">
+                          <button
+                            onClick={() => navigate('/results', {
+                              state: {
+                                result: {
+                                  url: r.url,
+                                  scores: r.scores,
+                                  issues: { performance: [], seo: [], accessibility: [], security: [] },
+                                  ai_summary: r.ai_summary,
+                                  error: null
+                                },
+                                url: r.url
+                              }
+                            })}
+                            className="text-[#3a5068] hover:text-blue-400 transition-colors px-2"
+                          >
+                            view →
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </div>
+
+      {authModal && (
+        <AuthModal
+          onClose={() => { setAuthModal(false); setPendingNav(null) }}
+          onSuccess={() => { pendingNav?.(); setPendingNav(null) }}
+        />
+      )}
     </div>
   )
 }

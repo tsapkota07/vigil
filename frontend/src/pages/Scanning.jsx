@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { runAudit } from '../api'
 
 const steps = [
   { label: 'Fetching HTML...', duration: 800 },
-  { label: 'Running Lighthouse performance audit...', duration: 1000 },
+  { label: 'Running performance audit...', duration: 1000 },
   { label: 'Checking SEO meta tags and structure...', duration: 900 },
-  { label: 'Running axe-core accessibility scan...', duration: 1100 },
+  { label: 'Running accessibility scan...', duration: 1100 },
   { label: 'Checking security headers...', duration: 700 },
   { label: 'Generating AI summary...', duration: 1200 },
   { label: 'Compiling results...', duration: 500 },
@@ -20,9 +21,25 @@ export default function Scanning() {
 
   const [currentStep, setCurrentStep] = useState(0)
   const [progress, setProgress] = useState(0)
-  const [done, setDone] = useState(false)
+  const [animDone, setAnimDone] = useState(false)
+  const [apiResult, setApiResult] = useState(null)
+  const [apiError, setApiError] = useState(null)
 
+  // Fire the real API call immediately on mount.
+  // AbortController ensures StrictMode's double-invoke only completes one request.
   useEffect(() => {
+    const controller = new AbortController()
+    runAudit(url, controller.signal)
+      .then(setApiResult)
+      .catch(err => {
+        if (err.name !== 'AbortError') setApiError(err.message)
+      })
+    return () => controller.abort()
+  }, [url])
+
+  // Run the progress animation
+  useEffect(() => {
+    const timers = []
     let elapsed = 0
 
     steps.forEach((step, i) => {
@@ -30,18 +47,33 @@ export default function Scanning() {
       const captured = elapsed
       const capturedIndex = i
 
-      setTimeout(() => {
+      timers.push(setTimeout(() => {
         setCurrentStep(capturedIndex + 1)
         setProgress(Math.round((captured / totalTime) * 100))
-
         if (capturedIndex === steps.length - 1) {
-          setDone(true)
+          setAnimDone(true)
           setProgress(100)
-          setTimeout(() => navigate('/results'), 800)
         }
-      }, captured)
+      }, captured))
     })
+
+    return () => timers.forEach(clearTimeout)
   }, [])
+
+  // Navigate once BOTH the animation AND the API call are done
+  useEffect(() => {
+    if (animDone && apiResult) {
+      const t = setTimeout(() =>
+        navigate('/results', { state: { result: apiResult, url } }), 800
+      )
+      return () => clearTimeout(t)
+    }
+    if (animDone && apiError) {
+      navigate('/', { state: { error: apiError } })
+    }
+  }, [animDone, apiResult, apiError])
+
+  const done = animDone && (apiResult || apiError)
 
   return (
     <div className="min-h-screen bg-[#080c14] text-[#e8edf5] font-sans flex flex-col items-center justify-center px-6">
@@ -104,7 +136,13 @@ export default function Scanning() {
           ))}
         </div>
 
-        {done && (
+        {animDone && !apiResult && !apiError && (
+          <p className="text-blue-400 font-mono text-sm mt-6 animate-pulse">
+            // finalizing results...
+          </p>
+        )}
+
+        {done && !apiError && (
           <p className="text-green-400 font-mono text-sm mt-6 animate-pulse">
             // audit complete — loading results...
           </p>

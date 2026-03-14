@@ -1,0 +1,113 @@
+================================================================================
+  VIGIL — HOW TO RUN LOCALLY
+================================================================================
+
+REQUIREMENTS
+------------
+  - Python 3.10+
+  - Node.js 18+
+  - An Anthropic API key (for AI summaries — optional but recommended)
+
+
+--------------------------------------------------------------------------------
+  STEP 1 — BACKEND SETUP
+--------------------------------------------------------------------------------
+
+1. Open a terminal and navigate to the backend folder:
+
+     cd vigil/backend
+
+2. Install Python dependencies:
+
+     pip install -r requirements.txt
+
+3. Create a .env file in the backend folder with your keys:
+
+     ANTHROPIC_API_KEY=sk-ant-...        (for AI summaries)
+     VIGIL_EMAIL_ADDRESS=you@gmail.com   (for alert emails — optional)
+     VIGIL_EMAIL_PASSWORD=yourpassword   (for alert emails — optional)
+
+   If you skip the API key, AI summaries will just say "unavailable".
+   If you skip the email vars, score-drop alerts won't be sent.
+
+4. Start the backend server:
+
+     uvicorn main:app --reload
+
+   The API will be running at:  http://localhost:8000
+   Interactive API docs at:     http://localhost:8000/docs
+
+
+--------------------------------------------------------------------------------
+  STEP 2 — FRONTEND SETUP
+--------------------------------------------------------------------------------
+
+1. Open a second terminal and navigate to the frontend folder:
+
+     cd vigil/frontend
+
+2. Install Node dependencies:
+
+     npm install
+
+3. (Optional) Create a .env file in the frontend folder to point at the backend:
+
+     VITE_API_URL=http://localhost:8000
+
+   This defaults to http://localhost:8000 so you can skip this step
+   if you're running everything locally on the default port.
+
+4. Start the frontend dev server:
+
+     npm run dev
+
+   The app will be running at:  http://localhost:5173
+
+
+--------------------------------------------------------------------------------
+  STEP 3 — USE IT
+--------------------------------------------------------------------------------
+
+1. Open http://localhost:5173 in your browser
+2. Enter any URL (e.g. https://45press.com) and hit Scan
+3. The backend will audit the site and return real scores
+4. Results, trend dashboard, and scheduled monitoring all work end-to-end
+
+
+--------------------------------------------------------------------------------
+  RUNNING TESTS
+--------------------------------------------------------------------------------
+
+  Backend tests (Python / pytest):
+
+     cd vigil/backend
+     py -m pytest test_vigil.py -v
+
+  Frontend tests (Vitest):
+
+     cd vigil/frontend
+     npm test
+
+
+--------------------------------------------------------------------------------
+  COMMON ISSUES
+--------------------------------------------------------------------------------
+
+  "Could not fetch the page"
+    → The URL you entered is unreachable, behind a firewall, or has a bad SSL cert.
+      Try a different site.
+
+  AI summary says "unavailable"
+    → ANTHROPIC_API_KEY is not set in backend/.env
+
+  CORS error in browser console
+    → Make sure the backend is running on port 8000 before starting the frontend.
+
+  "recharts is not installed"
+    → Run: npm install recharts  (inside vigil/frontend)
+
+  SSL error when auditing a site (DH_KEY_TOO_SMALL)
+    → The target site is using an outdated SSL configuration.
+      This is a real finding — the auditor correctly cannot connect.
+
+================================================================================
