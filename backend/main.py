@@ -117,14 +117,14 @@ def trigger_audit(request: AuditRequest):
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
 
-    # Generate AI summary
+    # Generate AI summary — uses flat list
     result["ai_summary"] = generate_ai_summary(
         url,
         result["scores"],
-        result["issues"]
+        result["issues_flat"]
     )
 
-    # Save to database
+    # Save to database — store flat list for simplicity
     with get_session() as session:
         audit_record = AuditResult(
             url=url,
@@ -133,7 +133,7 @@ def trigger_audit(request: AuditRequest):
             accessibility_score=result["scores"]["accessibility"],
             security_score=result["scores"]["security"],
             overall_score=result["scores"]["overall"],
-            issues=json.dumps(result["issues"]),
+            issues=json.dumps(result["issues_flat"]),
             ai_summary=result["ai_summary"]
         )
         session.add(audit_record)
@@ -310,7 +310,7 @@ def run_scheduled_audit(url: str):
         print(f"[Vigil] Scheduled audit failed for {url}: {result['error']}")
         return
 
-    result["ai_summary"] = generate_ai_summary(url, result["scores"], result["issues"])
+    result["ai_summary"] = generate_ai_summary(url, result["scores"], result["issues_flat"])
 
     # Save to DB
     with get_session() as session:
@@ -321,7 +321,7 @@ def run_scheduled_audit(url: str):
             accessibility_score=result["scores"]["accessibility"],
             security_score=result["scores"]["security"],
             overall_score=result["scores"]["overall"],
-            issues=json.dumps(result["issues"]),
+            issues=json.dumps(result["issues_flat"]),
             ai_summary=result["ai_summary"]
         )
         session.add(audit_record)
@@ -342,7 +342,7 @@ def run_scheduled_audit(url: str):
                     to_email=schedule.alert_email,
                     url=url,
                     scores=result["scores"],
-                    issues=result["issues"]
+                    issues=result["issues_flat"]
                 )
 
 
