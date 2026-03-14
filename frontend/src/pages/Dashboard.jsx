@@ -69,12 +69,15 @@ export default function Dashboard() {
           45press.com
         </div>
         <div className="flex gap-3">
-          <button onClick={() => navigate('/results')} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
+         <button onClick={() => navigate('/settings')} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
+            Settings
+         </button>
+         <button onClick={() => navigate('/results')} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
             Latest Report
-          </button>
-          <button onClick={() => navigate('/')} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+         </button>
+         <button onClick={() => navigate('/')} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
             + New Audit
-          </button>
+         </button>
         </div>
       </nav>
 

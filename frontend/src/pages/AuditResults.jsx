@@ -30,18 +30,21 @@ export default function AuditResults() {
 
       {/* Nav */}
       <nav className="relative z-10 flex items-center justify-between px-12 py-4 border-b border-white/[0.06]">
-        <div className="font-mono text-lg font-bold">SAT<span className="text-blue-500">sec</span></div>
+        <div className="font-mono text-lg font-bold cursor-pointer" onClick={() => navigate('/')}>SAT<span className="text-blue-500">sec</span></div>
         <div className="flex items-center gap-2 bg-white/[0.04] border border-white/[0.08] rounded-lg px-4 py-2 font-mono text-xs text-[#7a9ab8]">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           45press.com
         </div>
         <div className="flex gap-3">
-          <button onClick={() => navigate('/')} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
+         <button onClick={() => navigate('/')} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
             ← New Audit
-          </button>
-          <button onClick={() => navigate('/settings')} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-           Schedule Monitoring
-          </button>
+         </button>
+         <button onClick={() => navigate('/dashboard')} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
+            Dashboard
+         </button>
+         <button onClick={() => navigate('/settings')} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+            Schedule Monitoring
+         </button>
         </div>
       </nav>
 
