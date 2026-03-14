@@ -64,6 +64,41 @@ Always watching. Always reporting.
         print(f"[Vigil] Failed to send alert: {e}")
 
 
+def send_reset_email(to_email: str, username: str, reset_url: str):
+    """Sends a password reset link to the user."""
+    if not SENDER_EMAIL or not SENDER_PASSWORD:
+        print("[Vigil] Email not configured — skipping reset email")
+        return
+
+    subject = "Vigil — Password Reset Request"
+    body = f"""Hi {username},
+
+You requested a password reset for your Vigil account.
+
+Click the link below to reset your password (expires in 1 hour):
+{reset_url}
+
+If you didn't request this, you can safely ignore this email.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Vigil — Always watching. Always reporting.""".strip()
+
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = SENDER_EMAIL
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+
+        print(f"[Vigil] Password reset email sent to {to_email}")
+    except Exception as e:
+        print(f"[Vigil] Failed to send reset email: {e}")
+
+
 def should_alert(scores: dict, threshold: float) -> bool:
     """
     Returns True if any score is below the threshold.

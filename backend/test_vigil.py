@@ -431,7 +431,16 @@ class TestAuditRoute:
 
 
 class TestSchedulesRoute:
-    def test_list_schedules_empty(self, client):
+    def test_list_schedules_requires_auth(self, client):
         response = client.get("/schedules")
+        assert response.status_code == 401
+
+    def test_list_schedules_with_auth(self, client):
+        # Sign up a user and use their token
+        signup = client.post("/auth/signup", json={
+            "username": "scheduser", "email": "sched@test.com", "password": "testpass123"
+        })
+        token = signup.json()["token"]
+        response = client.get("/schedules", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200
         assert isinstance(response.json(), list)

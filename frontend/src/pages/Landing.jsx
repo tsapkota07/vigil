@@ -1,16 +1,62 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+
+function isValidDomain(input) {
+  const cleaned = input.trim().replace(/^https?:\/\//i, '').split('/')[0]
+  // Must contain a dot, no spaces, valid domain chars, TLD at least 2 chars
+  return /^[a-zA-Z0-9][a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}$/.test(cleaned)
+}
+
+function Toast({ message, onClose }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 4000)
+    return () => clearTimeout(t)
+  }, [])
+
+  return (
+    <div className="fixed top-5 right-5 z-50 flex items-start gap-3 bg-[#0d1520] border border-red-500/30 rounded-xl px-4 py-3 shadow-xl max-w-sm animate-in">
+      <span className="text-red-400 mt-0.5 flex-shrink-0">⚠</span>
+      <div>
+        <p className="text-sm font-medium text-[#e8edf5] mb-0.5">Audit failed</p>
+        <p className="text-xs text-[#7a9ab8] font-mono leading-relaxed">{message}</p>
+      </div>
+      <button onClick={onClose} className="text-[#3a5068] hover:text-[#8899aa] ml-2 flex-shrink-0 text-lg leading-none">×</button>
+    </div>
+  )
+}
 
 export default function Landing() {
   const [url, setUrl] = useState('')
+  const [toast, setToast] = useState(null)
   const navigate = useNavigate()
+  const location = useLocation()
+  const { isLoggedIn, user, logout } = useAuth()
+
+  // Show error toast if Scanning redirected back with an error
+  useEffect(() => {
+    if (location.state?.error) {
+      setToast(location.state.error)
+      window.history.replaceState({}, '')  // clear the state so it doesn't re-show on refresh
+    }
+  }, [])
 
   const handleScan = () => {
-    if (url.trim()) navigate('/scanning', { state: { url } })
+    const trimmed = url.trim()
+    if (!trimmed) return
+
+    if (!isValidDomain(trimmed)) {
+      setToast(`"${trimmed}" doesn't look like a valid domain. Try something like example.com`)
+      return
+    }
+
+    navigate('/scanning', { state: { url: trimmed } })
   }
 
   return (
     <div className="min-h-screen bg-[#080c14] text-[#e8edf5] font-sans overflow-x-hidden">
+
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
 
       {/* Grid background */}
       <div className="fixed inset-0 z-0 pointer-events-none"
@@ -29,11 +75,30 @@ export default function Landing() {
           <span className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Pricing</span>
           <span className="text-sm text-[#8899aa] hover:text-[#e8edf5] transition-colors cursor-pointer">Docs</span>
         </div>
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
-          Get Started
-        </button>
+        {isLoggedIn ? (
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-[#7a9ab8] font-mono hidden md:block">{user.username}</span>
+            <button onClick={() => navigate('/dashboard')}
+              className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
+              Dashboard
+            </button>
+            <button onClick={logout}
+              className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate('/login')}
+              className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
+              Sign in
+            </button>
+            <button onClick={() => navigate('/register')}
+              className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">
+              Get Started
+            </button>
+          </div>
+        )}
       </nav>
 
       {/* Hero */}

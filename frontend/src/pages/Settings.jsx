@@ -1,16 +1,42 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { createSchedule } from '../api'
+import { useAuth } from '../contexts/AuthContext'
+import AuthModal from '../components/AuthModal'
+
+const SCHEDULE_HOURS = { '6h': 6, 'daily': 24, 'weekly': 168 }
 
 export default function Settings() {
   const navigate = useNavigate()
-  const [schedule, setSchedule] = useState('6h')
-  const [threshold, setThreshold] = useState(70)
-  const [email, setEmail] = useState('')
-  const [saved, setSaved] = useState(false)
+  const location = useLocation()
+  const { isLoggedIn } = useAuth()
+  const url = location.state?.url || ''
 
-  const handleSave = () => {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+  const [schedule, setSchedule]   = useState('6h')
+  const [threshold, setThreshold] = useState(70)
+  const [email, setEmail]         = useState('')
+  const [saved, setSaved]         = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [error, setError]         = useState(null)
+  const [authModal, setAuthModal] = useState(!isLoggedIn)
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      await createSchedule({
+        url,
+        interval_hours:   SCHEDULE_HOURS[schedule],
+        alert_email:      email || null,
+        alert_threshold:  threshold,
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -31,14 +57,11 @@ export default function Settings() {
         </div>
         <div className="flex items-center gap-2 bg-white/[0.04] border border-white/[0.08] rounded-lg px-4 py-2 font-mono text-xs text-[#7a9ab8]">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          45press.com
+          {url || 'no site selected'}
         </div>
         <div className="flex gap-3">
-          <button onClick={() => navigate('/dashboard')} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
+          <button onClick={() => navigate('/dashboard', { state: { url } })} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
             Dashboard
-          </button>
-          <button onClick={() => navigate('/results')} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-            Latest Report
           </button>
         </div>
       </nav>
@@ -48,7 +71,7 @@ export default function Settings() {
         {/* Header */}
         <div className="mb-10">
           <h2 className="text-xl font-medium text-[#f0f4fa] mb-1">Monitoring Settings</h2>
-          <p className="text-sm text-[#4a6070] font-mono">// configure schedule and alerts for 45press.com</p>
+          <p className="text-sm text-[#4a6070] font-mono">// configure schedule and alerts for {url || '—'}</p>
         </div>
 
         {/* Schedule */}
@@ -56,9 +79,9 @@ export default function Settings() {
           <p className="text-xs font-mono text-[#8899aa] uppercase tracking-widest mb-6">Scan Schedule</p>
           <div className="grid grid-cols-3 gap-3">
             {[
-              { value: '6h', label: 'Every 6 Hours', desc: 'Recommended for production sites' },
-              { value: 'daily', label: 'Daily', desc: 'Morning report, lighter touch' },
-              { value: 'weekly', label: 'Weekly', desc: 'SEO-focused, slow-changing sites' },
+              { value: '6h',     label: 'Every 6 Hours', desc: 'Recommended for production sites' },
+              { value: 'daily',  label: 'Daily',         desc: 'Morning report, lighter touch' },
+              { value: 'weekly', label: 'Weekly',        desc: 'SEO-focused, slow-changing sites' },
             ].map(({ value, label, desc }) => (
               <div
                 key={value}
@@ -73,9 +96,7 @@ export default function Settings() {
                   {label}
                 </div>
                 <div className="text-xs text-[#4a6070] leading-relaxed">{desc}</div>
-                {schedule === value && (
-                  <div className="mt-2 text-xs text-blue-400 font-mono">// active</div>
-                )}
+                {schedule === value && <div className="mt-2 text-xs text-blue-400 font-mono">// active</div>}
               </div>
             ))}
           </div>
@@ -90,10 +111,7 @@ export default function Settings() {
             }`}>{threshold}</span>
           </div>
           <input
-            type="range"
-            min="0"
-            max="100"
-            value={threshold}
+            type="range" min="0" max="100" value={threshold}
             onChange={e => setThreshold(Number(e.target.value))}
             className="w-full accent-blue-500 mb-4"
           />
@@ -103,7 +121,7 @@ export default function Settings() {
           </div>
           <div className="mt-4 bg-white/[0.02] border border-white/[0.05] rounded-xl p-4">
             <p className="text-sm text-[#8899aa]">
-              SATsec will email you if <span className="text-white font-medium">any score drops below {threshold}</span>.
+              Vigil will email you if <span className="text-white font-medium">any score drops below {threshold}</span>.
               {threshold < 50 && <span className="text-red-400"> This is a very sensitive threshold.</span>}
               {threshold >= 80 && <span className="text-green-400"> This is a healthy threshold.</span>}
             </p>
@@ -113,35 +131,49 @@ export default function Settings() {
         {/* Email */}
         <div className="bg-white/[0.025] border border-white/[0.06] rounded-2xl p-6 mb-6">
           <p className="text-xs font-mono text-[#8899aa] uppercase tracking-widest mb-6">Alert Email</p>
-          <div className="flex gap-3">
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@agency.com"
-              className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-[#e8edf5] placeholder-[#3a4f63] outline-none focus:border-blue-500/50 transition-colors font-mono"
-            />
-            <button className="border border-white/10 hover:border-white/25 text-[#8899aa] text-sm px-4 py-3 rounded-xl transition-all">
-              + Add Another
-            </button>
-          </div>
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="you@agency.com"
+            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-[#e8edf5] placeholder-[#3a4f63] outline-none focus:border-blue-500/50 transition-colors font-mono"
+          />
           <p className="text-xs text-[#3a5068] font-mono mt-3">// alerts will be sent to this address when scores drop</p>
         </div>
+
+        {/* Error */}
+        {error && (
+          <div className="bg-red-500/[0.06] border border-red-500/20 rounded-xl px-5 py-3 mb-4 text-sm text-red-400 font-mono">
+            {error}
+          </div>
+        )}
 
         {/* Save */}
         <button
           onClick={handleSave}
-          className={`w-full py-4 rounded-xl text-sm font-medium transition-all ${
+          disabled={saving || !url}
+          className={`w-full py-4 rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
             saved
               ? 'bg-green-500/20 border border-green-500/30 text-green-400'
               : 'bg-blue-500 hover:bg-blue-600 text-white'
           }`}
         >
-          {saved ? '✓ Settings Saved — Monitoring Active' : 'Save & Start Monitoring'}
+          {saving ? 'Saving...' : saved ? '✓ Settings Saved — Monitoring Active' : 'Save & Start Monitoring'}
         </button>
 
-        <p className="text-center text-xs text-[#2e4050] font-mono mt-6">// SATsec will run its first scan within the next scheduled window</p>
+        {!url && (
+          <p className="text-center text-xs text-red-400 font-mono mt-3">// no site selected — run an audit first</p>
+        )}
+
+        <p className="text-center text-xs text-[#2e4050] font-mono mt-6">// Vigil will run its first scan within the next scheduled window</p>
       </div>
+
+      {authModal && (
+        <AuthModal
+          onClose={() => navigate(-1)}
+          onSuccess={() => setAuthModal(false)}
+        />
+      )}
     </div>
   )
 }

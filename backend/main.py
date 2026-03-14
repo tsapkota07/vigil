@@ -1,15 +1,19 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import json
 import os
 import datetime
+from dotenv import load_dotenv
 
-from database import get_session, AuditResult, ScheduledAudit
+load_dotenv()
+
+from database import get_session, AuditResult, ScheduledAudit, User, PasswordResetToken
 from audit import run_audit
-from alerts import send_alert, should_alert
+from alerts import send_alert, should_alert, send_reset_email
 from scheduler import start_scheduler, add_scheduled_audit, remove_scheduled_audit, list_scheduled_jobs
+import auth as auth_utils
 import anthropic
 
 # ─────────────────────────────────────────
@@ -22,7 +26,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Allow React frontend to talk to this backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,9 +34,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Anthropic client for AI summaries
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 
 # ─────────────────────────────────────────
@@ -48,6 +52,50 @@ class ScheduleRequest(BaseModel):
     interval_hours: int = 6
     alert_email: Optional[str] = None
     alert_threshold: float = 70.0
+
+class SignupRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class LoginRequest(BaseModel):
+    identifier: str   # username OR email
+    password: str
+
+class ForgotPasswordRequest(BaseModel):
+    identifier: str   # username OR email
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+# ─────────────────────────────────────────
+# IDENTITY RESOLUTION
+# ─────────────────────────────────────────
+
+def get_identity(request: Request) -> dict:
+    """
+    Resolves caller identity from request headers.
+    Returns {"user_id": int|None, "session_id": str|None}
+    Priority: Bearer JWT > X-Session-ID header
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        payload = auth_utils.decode_access_token(token)
+        if payload:
+            return {"user_id": int(payload["sub"]), "session_id": None}
+
+    session_id = request.headers.get("X-Session-ID")
+    return {"user_id": None, "session_id": session_id}
+
+
+def require_auth(identity: dict = Depends(get_identity)) -> dict:
+    """Raises 401 if caller is not logged in."""
+    if not identity["user_id"]:
+        raise HTTPException(status_code=401, detail="Login required")
+    return identity
 
 
 # ─────────────────────────────────────────
@@ -93,7 +141,136 @@ Be direct and professional. Do not use bullet points.
 
 
 # ─────────────────────────────────────────
-# ROUTES
+# AUTH ROUTES
+# ─────────────────────────────────────────
+
+@app.post("/auth/signup")
+def signup(body: SignupRequest):
+    username = body.username.strip()
+    email    = body.email.strip().lower()
+    password = body.password
+
+    if len(username) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+
+    with get_session() as session:
+        if session.query(User).filter(User.username == username).first():
+            raise HTTPException(status_code=409, detail="Username already taken")
+        if session.query(User).filter(User.email == email).first():
+            raise HTTPException(status_code=409, detail="Email already registered")
+
+        user = User(
+            username=username,
+            email=email,
+            password_hash=auth_utils.hash_password(password)
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+        token = auth_utils.create_access_token(user.id, user.username)
+        return {"token": token, "user": {"id": user.id, "username": user.username, "email": user.email}}
+
+
+@app.post("/auth/login")
+def login(body: LoginRequest):
+    identifier = body.identifier.strip()
+    password   = body.password
+
+    with get_session() as session:
+        # Look up by username or email
+        user = (
+            session.query(User).filter(User.username == identifier).first()
+            or session.query(User).filter(User.email == identifier.lower()).first()
+        )
+        if not user or not auth_utils.verify_password(password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid username/email or password")
+
+        token = auth_utils.create_access_token(user.id, user.username)
+        return {"token": token, "user": {"id": user.id, "username": user.username, "email": user.email}}
+
+
+@app.get("/auth/me")
+def me(identity: dict = Depends(require_auth)):
+    with get_session() as session:
+        user = session.query(User).filter(User.id == identity["user_id"]).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"id": user.id, "username": user.username, "email": user.email}
+
+
+@app.post("/auth/forgot-password")
+def forgot_password(body: ForgotPasswordRequest):
+    identifier = body.identifier.strip()
+
+    with get_session() as session:
+        user = (
+            session.query(User).filter(User.username == identifier).first()
+            or session.query(User).filter(User.email == identifier.lower()).first()
+        )
+
+        # Always return success to avoid user enumeration
+        if not user:
+            return {"message": "If that account exists, a reset link has been sent"}
+
+        # Invalidate old tokens
+        old_tokens = session.query(PasswordResetToken).filter(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used == 0
+        ).all()
+        for t in old_tokens:
+            t.used = 1
+
+        reset_token = auth_utils.generate_reset_token()
+        expires_at  = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+
+        db_token = PasswordResetToken(
+            user_id=user.id,
+            token=reset_token,
+            expires_at=expires_at
+        )
+        session.add(db_token)
+        session.commit()
+
+        reset_url = f"{FRONTEND_URL}/reset-password?token={reset_token}"
+        send_reset_email(to_email=user.email, username=user.username, reset_url=reset_url)
+
+    return {"message": "If that account exists, a reset link has been sent"}
+
+
+@app.post("/auth/reset-password")
+def reset_password(body: ResetPasswordRequest):
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    with get_session() as session:
+        db_token = session.query(PasswordResetToken).filter(
+            PasswordResetToken.token == body.token,
+            PasswordResetToken.used == 0
+        ).first()
+
+        if not db_token:
+            raise HTTPException(status_code=400, detail="Invalid or already-used reset token")
+        if db_token.expires_at < datetime.datetime.utcnow():
+            raise HTTPException(status_code=400, detail="Reset token has expired")
+
+        user = session.query(User).filter(User.id == db_token.user_id).first()
+        if not user:
+            raise HTTPException(status_code=400, detail="User not found")
+
+        user.password_hash = auth_utils.hash_password(body.new_password)
+        db_token.used = 1
+        session.commit()
+
+    return {"message": "Password updated successfully"}
+
+
+# ─────────────────────────────────────────
+# AUDIT ROUTES
 # ─────────────────────────────────────────
 
 @app.get("/")
@@ -102,29 +279,18 @@ def root():
 
 
 @app.post("/audit")
-def trigger_audit(request: AuditRequest):
-    """
-    Run a one-time audit on a URL.
-    Returns scores, issues, and an AI summary.
-    """
+def trigger_audit(request: AuditRequest, identity: dict = Depends(get_identity)):
     url = request.url.strip()
     if not url.startswith("http"):
         url = "https://" + url
 
-    # Run the audit
     result = run_audit(url)
 
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
 
-    # Generate AI summary — uses flat list
-    result["ai_summary"] = generate_ai_summary(
-        url,
-        result["scores"],
-        result["issues_flat"]
-    )
+    result["ai_summary"] = generate_ai_summary(url, result["scores"], result["issues_flat"])
 
-    # Save to database — store flat list for simplicity
     with get_session() as session:
         audit_record = AuditResult(
             url=url,
@@ -134,7 +300,9 @@ def trigger_audit(request: AuditRequest):
             security_score=result["scores"]["security"],
             overall_score=result["scores"]["overall"],
             issues=json.dumps(result["issues_flat"]),
-            ai_summary=result["ai_summary"]
+            ai_summary=result["ai_summary"],
+            user_id=identity["user_id"],
+            session_id=identity["session_id"],
         )
         session.add(audit_record)
         session.commit()
@@ -145,19 +313,18 @@ def trigger_audit(request: AuditRequest):
 
 
 @app.get("/history")
-def get_history(url: str, limit: int = 20):
-    """
-    Get audit history for a specific URL.
-    Used to power the trend chart on the dashboard.
-    """
+def get_history(url: str, limit: int = 20, identity: dict = Depends(get_identity)):
     with get_session() as session:
-        records = (
-            session.query(AuditResult)
-            .filter(AuditResult.url == url)
-            .order_by(AuditResult.created_at.desc())
-            .limit(limit)
-            .all()
-        )
+        query = session.query(AuditResult).filter(AuditResult.url == url)
+
+        if identity["user_id"]:
+            query = query.filter(AuditResult.user_id == identity["user_id"])
+        elif identity["session_id"]:
+            query = query.filter(AuditResult.session_id == identity["session_id"])
+        else:
+            raise HTTPException(status_code=404, detail=f"No audit history found for {url}")
+
+        records = query.order_by(AuditResult.created_at.desc()).limit(limit).all()
 
         if not records:
             raise HTTPException(status_code=404, detail=f"No audit history found for {url}")
@@ -181,11 +348,39 @@ def get_history(url: str, limit: int = 20):
         ]
 
 
+@app.get("/audits/recent")
+def get_recent_audits(limit: int = 30, identity: dict = Depends(get_identity)):
+    with get_session() as session:
+        query = session.query(AuditResult)
+
+        if identity["user_id"]:
+            query = query.filter(AuditResult.user_id == identity["user_id"])
+        elif identity["session_id"]:
+            query = query.filter(AuditResult.session_id == identity["session_id"])
+        else:
+            return []
+
+        records = query.order_by(AuditResult.created_at.desc()).limit(limit).all()
+        return [
+            {
+                "id": r.id,
+                "url": r.url,
+                "scores": {
+                    "performance": r.performance_score,
+                    "seo": r.seo_score,
+                    "accessibility": r.accessibility_score,
+                    "security": r.security_score,
+                    "overall": r.overall_score
+                },
+                "ai_summary": r.ai_summary,
+                "created_at": r.created_at.isoformat()
+            }
+            for r in records
+        ]
+
+
 @app.get("/results/{audit_id}")
 def get_result(audit_id: int):
-    """
-    Get a single audit result by ID.
-    """
     with get_session() as session:
         record = session.query(AuditResult).filter(AuditResult.id == audit_id).first()
         if not record:
@@ -207,11 +402,12 @@ def get_result(audit_id: int):
         }
 
 
+# ─────────────────────────────────────────
+# SCHEDULE ROUTES (require login)
+# ─────────────────────────────────────────
+
 @app.post("/schedule")
-def create_schedule(request: ScheduleRequest):
-    """
-    Set up a recurring audit for a URL.
-    """
+def create_schedule(request: ScheduleRequest, identity: dict = Depends(require_auth)):
     url = request.url.strip()
     if not url.startswith("http"):
         url = "https://" + url
@@ -221,14 +417,14 @@ def create_schedule(request: ScheduleRequest):
             url=url,
             interval_hours=request.interval_hours,
             alert_email=request.alert_email,
-            alert_threshold=request.alert_threshold
+            alert_threshold=request.alert_threshold,
+            user_id=identity["user_id"],
         )
         session.add(scheduled)
         session.commit()
         session.refresh(scheduled)
         audit_id = scheduled.id
 
-    # Register with scheduler
     add_scheduled_audit(
         audit_id=audit_id,
         url=url,
@@ -244,12 +440,12 @@ def create_schedule(request: ScheduleRequest):
 
 
 @app.delete("/schedule/{schedule_id}")
-def delete_schedule(schedule_id: int):
-    """
-    Cancel a scheduled audit.
-    """
+def delete_schedule(schedule_id: int, identity: dict = Depends(require_auth)):
     with get_session() as session:
-        scheduled = session.query(ScheduledAudit).filter(ScheduledAudit.id == schedule_id).first()
+        scheduled = session.query(ScheduledAudit).filter(
+            ScheduledAudit.id == schedule_id,
+            ScheduledAudit.user_id == identity["user_id"]
+        ).first()
         if not scheduled:
             raise HTTPException(status_code=404, detail="Schedule not found")
         scheduled.is_active = 0
@@ -260,14 +456,11 @@ def delete_schedule(schedule_id: int):
 
 
 @app.get("/schedules")
-def list_schedules():
-    """
-    List all active scheduled audits.
-    """
+def list_schedules(identity: dict = Depends(require_auth)):
     with get_session() as session:
         schedules = (
             session.query(ScheduledAudit)
-            .filter(ScheduledAudit.is_active == 1)
+            .filter(ScheduledAudit.is_active == 1, ScheduledAudit.user_id == identity["user_id"])
             .all()
         )
         return [
@@ -286,23 +479,14 @@ def list_schedules():
 
 @app.get("/scheduler/jobs")
 def get_scheduler_jobs():
-    """
-    See all currently running scheduler jobs.
-    Useful for debugging.
-    """
     return list_scheduled_jobs()
 
 
 # ─────────────────────────────────────────
 # SCHEDULED AUDIT RUNNER
-# (called automatically by APScheduler)
 # ─────────────────────────────────────────
 
 def run_scheduled_audit(url: str):
-    """
-    Runs an audit automatically on a schedule.
-    Sends an alert email if scores drop below threshold.
-    """
     print(f"[Vigil] Running scheduled audit for {url}")
 
     result = run_audit(url)
@@ -312,7 +496,6 @@ def run_scheduled_audit(url: str):
 
     result["ai_summary"] = generate_ai_summary(url, result["scores"], result["issues_flat"])
 
-    # Save to DB
     with get_session() as session:
         audit_record = AuditResult(
             url=url,
@@ -326,14 +509,12 @@ def run_scheduled_audit(url: str):
         )
         session.add(audit_record)
 
-        # Update last_run_at on the schedule
         schedule = session.query(ScheduledAudit).filter(ScheduledAudit.url == url).first()
         if schedule:
             schedule.last_run_at = datetime.datetime.utcnow()
 
         session.commit()
 
-    # Send alert if scores are low
     with get_session() as session:
         schedule = session.query(ScheduledAudit).filter(ScheduledAudit.url == url).first()
         if schedule and schedule.alert_email:
@@ -354,7 +535,6 @@ def run_scheduled_audit(url: str):
 def startup():
     start_scheduler()
 
-    # Re-register any active schedules from DB on server restart
     with get_session() as session:
         active_schedules = session.query(ScheduledAudit).filter(ScheduledAudit.is_active == 1).all()
         for s in active_schedules:
