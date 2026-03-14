@@ -1,0 +1,35 @@
+# IntelliJ
+.idea/
+*.iml
+out/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Python
+backend/__pycache__/
+backend/*.pyc
+backend/.venv/
+backend/venv/
+backend/.env
+
+# Node / React
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.vite/
+
+# Logs
+*.log
+
+# SQLite
+*.sqlite3
+*.db
+
+# OS / misc
+.env
