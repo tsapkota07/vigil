@@ -1,21 +1,145 @@
-# Database
-vigil.db
- 
-# Environment variables — NEVER commit this
-.env
- 
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-.Python
-env/
-venv/
-.venv/
- 
+############################
+# OS FILES
+############################
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+############################
+# EDITORS / IDEs
+############################
+
+# IntelliJ / JetBrains
+.idea/
+*.iml
+out/
+
 # VS Code
 .vscode/
- 
-# Mac
-.DS_Store
- 
+
+# Sublime
+*.sublime-project
+*.sublime-workspace
+
+############################
+# PYTHON
+############################
+
+# Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python environment files
+.env
+.env.*
+*.env
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Python packaging
+pip-wheel-metadata/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Type checking
+.mypy_cache/
+.pyre/
+.pytype/
+
+############################
+# DATABASES
+############################
+
+# SQLite
+*.db
+*.sqlite3
+
+# Specific project DB
+vigil.db
+
+############################
+# LOG FILES
+############################
+
+*.log
+logs/
+
+############################
+# NODE / FRONTEND
+############################
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.next/
+out/
+
+# Environment
+frontend/.env
+frontend/.env.*
+
+############################
+# CACHE / TEMP FILES
+############################
+
+.cache/
+.tmp/
+temp/
+
+############################
+# SYSTEM GENERATED FILES
+############################
+
+*.swp
+*.swo
+
+############################
+# SECURITY
+############################
+
+# Private keys / certificates
+*.pem
+*.key
+*.crt
+
+############################
+# MISC
+############################
+
+# Local configs
+local_settings.py
+
+# Runtime files
+*.pid
+*.seed
+*.pid.lock
