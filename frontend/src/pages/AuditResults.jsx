@@ -39,8 +39,8 @@ export default function AuditResults() {
           <button onClick={() => navigate('/')} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
             ← New Audit
           </button>
-          <button className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-            Schedule Monitoring
+          <button onClick={() => navigate('/settings')} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+           Schedule Monitoring
           </button>
         </div>
       </nav>
