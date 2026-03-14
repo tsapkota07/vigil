@@ -11,25 +11,27 @@ Thumbs.db
 Desktop.ini
 
 # Python
-backend/__pycache__/
-backend/*.pyc
-backend/.venv/
-backend/venv/
-backend/.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
 
-# Node / React
+# Backend
+backend/.env
+backend/vigil.db
+
+# Node
 frontend/node_modules/
 frontend/dist/
 frontend/build/
-frontend/.env
-frontend/.vite/
 
 # Logs
 *.log
 
-# SQLite
-*.sqlite3
-*.db
 
-# OS / misc
 .env
+vigil.db
+__pycache__/
+*.pyc
+.venv/
