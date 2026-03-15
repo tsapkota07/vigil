@@ -194,10 +194,23 @@ def signup(body: SignupRequest):
         raise HTTPException(status_code=400, detail="Invalid email address")
 
     with get_session() as session:
-        if session.query(User).filter(User.username == username).first():
-            raise HTTPException(status_code=409, detail="Username already taken")
-        if session.query(User).filter(User.email == email).first():
-            raise HTTPException(status_code=409, detail="Email already registered")
+        existing_by_username = session.query(User).filter(User.username == username).first()
+        if existing_by_username:
+            if existing_by_username.email_verified:
+                raise HTTPException(status_code=409, detail="Username already taken")
+            # Unverified stale registration — clean it up and allow re-registration
+            session.query(OtpCode).filter(OtpCode.user_id == existing_by_username.id).delete()
+            session.delete(existing_by_username)
+            session.flush()
+
+        existing_by_email = session.query(User).filter(User.email == email).first()
+        if existing_by_email:
+            if existing_by_email.email_verified:
+                raise HTTPException(status_code=409, detail="Email already registered")
+            # Unverified stale registration — clean it up and allow re-registration
+            session.query(OtpCode).filter(OtpCode.user_id == existing_by_email.id).delete()
+            session.delete(existing_by_email)
+            session.flush()
 
         user = User(
             username=username,
