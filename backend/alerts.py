@@ -1,20 +1,35 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import boto3
 import os
+from botocore.exceptions import ClientError
 
-SENDER_EMAIL = os.getenv("VIGIL_EMAIL_ADDRESS", "")       #check .env.example
-SENDER_PASSWORD = os.getenv("VIGIL_EMAIL_PASSWORD", "")   
+FROM_EMAIL = os.getenv("VIGIL_FROM_EMAIL", "")
+SES_REGION = "us-east-2"
+
+
+def _send(to_email: str, subject: str, body: str):
+    """Send a plain-text email via AWS SES. Auth is handled by the IAM role."""
+    if not FROM_EMAIL:
+        print("[Vigil] VIGIL_FROM_EMAIL not set — skipping email")
+        return
+    try:
+        client = boto3.client("ses", region_name=SES_REGION)
+        client.send_email(
+            Source=FROM_EMAIL,
+            Destination={"ToAddresses": [to_email]},
+            Message={
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body":    {"Text": {"Data": body,    "Charset": "UTF-8"}},
+            },
+        )
+        print(f"[Vigil] Email sent to {to_email} — {subject}")
+    except ClientError as e:
+        print(f"[Vigil] SES send failed: {e.response['Error']['Message']}")
+    except Exception as e:
+        print(f"[Vigil] SES send failed: {e}")
 
 
 def send_alert(to_email: str, url: str, scores: dict, issues: list):
-    """
-    Sends an email alert when a score drops below the threshold.
-    """
-    if not SENDER_EMAIL or not SENDER_PASSWORD:
-        print("[Vigil] Email not configured — skipping alert")
-        return
-
+    """Sends an email alert when a score drops below the threshold."""
     subject = f"Vigil Alert: Score drop detected on {url}"
 
     score_lines = "\n".join([
@@ -25,12 +40,11 @@ def send_alert(to_email: str, url: str, scores: dict, issues: list):
         f"  • Overall:       {scores['overall']}/100",
     ])
 
-    issue_lines = "\n".join([f"  - {issue}" for issue in issues[:10]])  # capped at 10 issues
+    issue_lines = "\n".join([f"  - {issue}" for issue in issues[:10]])
     if len(issues) > 10:
         issue_lines += f"\n  ... and {len(issues) - 10} more issues"
 
-    body = f"""
-Vigil has detected issues on a monitored site.
+    body = f"""Vigil has detected issues on a monitored site.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Site: {url}
@@ -44,32 +58,13 @@ Issues Found:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 This alert was sent automatically by Vigil.
-Always watching. Always reporting.
-    """.strip()
+Always watching. Always reporting."""
 
-    try:
-        msg = MIMEMultipart()
-        msg["From"] = SENDER_EMAIL
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
-
-        print(f"[Vigil] Alert sent to {to_email} for {url}")
-
-    except Exception as e:
-        print(f"[Vigil] Failed to send alert: {e}")
+    _send(to_email, subject, body)
 
 
 def send_reset_email(to_email: str, username: str, reset_url: str):
     """Sends a password reset link to the user."""
-    if not SENDER_EMAIL or not SENDER_PASSWORD:
-        print("[Vigil] Email not configured — skipping reset email")
-        return
-
     subject = "Vigil — Password Reset Request"
     body = f"""Hi {username},
 
@@ -81,30 +76,13 @@ Click the link below to reset your password (expires in 1 hour):
 If you didn't request this, you can safely ignore this email.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Vigil — Always watching. Always reporting.""".strip()
+Vigil — Always watching. Always reporting."""
 
-    try:
-        msg = MIMEMultipart()
-        msg["From"] = SENDER_EMAIL
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
-
-        print(f"[Vigil] Password reset email sent to {to_email}")
-    except Exception as e:
-        print(f"[Vigil] Failed to send reset email: {e}")
+    _send(to_email, subject, body)
 
 
 def send_otp_email(to_email: str, username: str, otp_code: str):
     """Sends an OTP verification code to the user's email."""
-    if not SENDER_EMAIL or not SENDER_PASSWORD:
-        print(f"[Vigil] Email not configured — OTP for {to_email}: {otp_code}")
-        return
-
     subject = "Vigil — Verify your email"
     body = f"""Hi {username},
 
@@ -117,28 +95,13 @@ This code expires in 10 minutes. Enter it on the verification page to activate y
 If you didn't create a Vigil account, you can safely ignore this email.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Vigil — Always watching. Always reporting.""".strip()
+Vigil — Always watching. Always reporting."""
 
-    try:
-        msg = MIMEMultipart()
-        msg["From"] = SENDER_EMAIL
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
-
-        print(f"[Vigil] OTP email sent to {to_email}")
-    except Exception as e:
-        print(f"[Vigil] Failed to send OTP email: {e}")
+    _send(to_email, subject, body)
 
 
 def should_alert(scores: dict, threshold: float) -> bool:
-    """
-    Returns True if any score is below the threshold.
-    """
+    """Returns True if any individual score is below the threshold."""
     return any(
         v < threshold
         for k, v in scores.items()

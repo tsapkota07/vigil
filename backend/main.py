@@ -27,9 +27,16 @@ app = FastAPI(
     version="1.0.0"
 )
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+# Build allowed origins from FRONTEND_URL plus local dev origins.
+# IMPORTANT: allow_origins must never be ["*"] when allow_credentials=True —
+# browsers reject that combination and omit the CORS header entirely.
+_allowed_origins = list({FRONTEND_URL, "http://localhost:5173", "http://localhost:3000"})
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,8 +44,6 @@ app.add_middleware(
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
-
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 
 # ─────────────────────────────────────────
