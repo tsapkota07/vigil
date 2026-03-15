@@ -59,6 +59,39 @@ export async function signup(username, email, password) {
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || 'Signup failed')
+  return data  // { user_id, email, message }
+}
+
+export async function verifyOtp(userId, code) {
+  const res = await fetch(`${BASE}/auth/verify-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, code }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || 'Verification failed')
+  return data  // { token, user }
+}
+
+export async function resendOtp(userId) {
+  const res = await fetch(`${BASE}/auth/resend-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || 'Failed to resend code')
+  return data
+}
+
+export async function importAudits(audits) {
+  const res = await fetch(`${BASE}/audit/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ audits }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || 'Import failed')
   return data
 }
 
@@ -69,7 +102,16 @@ export async function loginApi(identifier, password) {
     body: JSON.stringify({ identifier, password }),
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.detail || 'Login failed')
+  if (!res.ok) {
+    // Special sentinel: backend tells us to go to OTP verification
+    if (res.status === 403 && typeof data.detail === 'string' && data.detail.startsWith('EMAIL_NOT_VERIFIED:')) {
+      const [, userId, email] = data.detail.split(':')
+      const err = new Error('Email not verified')
+      err.unverified = { userId: parseInt(userId), email }
+      throw err
+    }
+    throw new Error(data.detail || 'Login failed')
+  }
   return data
 }
 

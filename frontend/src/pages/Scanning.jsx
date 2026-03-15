@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { runAudit } from '../api'
+import { useAuth } from '../contexts/AuthContext'
+import { saveGuestAudit } from '../utils/guestStorage'
 
 const steps = [
   { label: 'Fetching HTML...', duration: 800 },
@@ -17,6 +19,7 @@ const totalTime = steps.reduce((a, b) => a + b.duration, 0)
 export default function Scanning() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { isLoggedIn } = useAuth()
   const url = location.state?.url || 'yoursite.com'
 
   const [currentStep, setCurrentStep] = useState(0)
@@ -63,6 +66,10 @@ export default function Scanning() {
   // Navigate once BOTH the animation AND the API call are done
   useEffect(() => {
     if (animDone && apiResult) {
+      // Guests: persist audit to localStorage so it can be imported later
+      if (!isLoggedIn) {
+        saveGuestAudit(apiResult, url)
+      }
       const t = setTimeout(() =>
         navigate('/results', { state: { result: apiResult, url } }), 800
       )

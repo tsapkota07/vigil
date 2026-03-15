@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import { getRecentAudits, getHistory } from '../api'
 import { useAuth } from '../contexts/AuthContext'
-import AuthModal from '../components/AuthModal'
+import { getGuestAudits } from '../utils/guestStorage'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -58,15 +58,12 @@ export default function Dashboard() {
   const [activeLine,   setActiveLine]   = useState('all')
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState(null)
-  const [authModal,    setAuthModal]    = useState(false)
-  const [pendingNav,   setPendingNav]   = useState(null)
 
   const openSettings = () => {
     if (isLoggedIn) {
       navigate('/settings', { state: { url: selectedUrl } })
     } else {
-      setPendingNav(() => () => navigate('/settings', { state: { url: selectedUrl } }))
-      setAuthModal(true)
+      navigate('/login')
     }
   }
 
@@ -75,21 +72,47 @@ export default function Dashboard() {
 
   // ── Fetch all recent audits on mount ──────────────────────────────────────
   useEffect(() => {
+    if (!isLoggedIn) {
+      // Guests: read from localStorage
+      const guestAudits = getGuestAudits().map(a => ({
+        id:         a.id,
+        url:        a.url,
+        scores:     a.scores,
+        ai_summary: a.ai_summary,
+        created_at: a.created_at,
+      }))
+      setRecentAudits(guestAudits)
+      if (!selectedUrl && guestAudits.length > 0) setSelectedUrl(guestAudits[0].url)
+      setLoading(false)
+      return
+    }
     getRecentAudits(30)
       .then(records => {
         setRecentAudits(records)
-        // Auto-select the most recently audited URL if none provided
-        if (!selectedUrl && records.length > 0) {
-          setSelectedUrl(records[0].url)
-        }
+        if (!selectedUrl && records.length > 0) setSelectedUrl(records[0].url)
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [isLoggedIn])
 
   // ── Fetch trend history whenever selectedUrl changes ──────────────────────
   useEffect(() => {
     if (!selectedUrl) return
+
+    if (!isLoggedIn) {
+      // Guests: build history from localStorage audits for this URL
+      const all = getGuestAudits().filter(a => a.url === selectedUrl)
+      const chartData = all.slice().reverse().map(a => ({
+        date:          fmtDateShort(a.created_at),
+        performance:   a.scores.performance,
+        seo:           a.scores.seo,
+        accessibility: a.scores.accessibility,
+        security:      a.scores.security,
+      }))
+      setHistory(chartData)
+      return
+    }
+
     getHistory(selectedUrl, 20)
       .then(records => {
         const chartData = records.slice().reverse().map(r => ({
@@ -102,7 +125,7 @@ export default function Dashboard() {
         setHistory(chartData)
       })
       .catch(() => setHistory([]))
-  }, [selectedUrl])
+  }, [selectedUrl, isLoggedIn])
 
   const latest  = history[history.length - 1]
   const prev    = history[history.length - 2]
@@ -329,12 +352,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      {authModal && (
-        <AuthModal
-          onClose={() => { setAuthModal(false); setPendingNav(null) }}
-          onSuccess={() => { pendingNav?.(); setPendingNav(null) }}
-        />
-      )}
     </div>
   )
 }

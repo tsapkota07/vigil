@@ -1,14 +1,17 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { getOrCreateSessionId } from '../utils/session'
+import { getGuestAudits } from '../utils/guestStorage'
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [user, setUser]   = useState(null)
-  const [token, setToken] = useState(() => localStorage.getItem('vigil_token'))
-  const [ready, setReady] = useState(false)
+  const [user,              setUser]              = useState(null)
+  const [token,             setToken]             = useState(() => localStorage.getItem('vigil_token'))
+  const [ready,             setReady]             = useState(false)
+  const [showImportModal,   setShowImportModal]   = useState(false)
+  const [pendingImportAudits, setPendingImportAudits] = useState([])
 
   // Ensure session ID exists immediately on mount
   getOrCreateSessionId()
@@ -40,12 +43,24 @@ export function AuthProvider({ children }) {
     localStorage.setItem('vigil_token', tokenValue)
     setToken(tokenValue)
     setUser(userData)
+
+    // Check for guest audits to import
+    const guestAudits = getGuestAudits()
+    if (guestAudits.length > 0) {
+      setPendingImportAudits(guestAudits)
+      setShowImportModal(true)
+    }
   }
 
   function logout() {
     localStorage.removeItem('vigil_token')
     setToken(null)
     setUser(null)
+  }
+
+  function dismissImportModal() {
+    setShowImportModal(false)
+    setPendingImportAudits([])
   }
 
   return (
@@ -57,6 +72,9 @@ export function AuthProvider({ children }) {
       logout,
       isLoggedIn: !!user,
       ready,
+      showImportModal,
+      pendingImportAudits,
+      dismissImportModal,
     }}>
       {children}
     </AuthContext.Provider>

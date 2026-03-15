@@ -99,6 +99,42 @@ Vigil — Always watching. Always reporting.""".strip()
         print(f"[Vigil] Failed to send reset email: {e}")
 
 
+def send_otp_email(to_email: str, username: str, otp_code: str):
+    """Sends an OTP verification code to the user's email."""
+    if not SENDER_EMAIL or not SENDER_PASSWORD:
+        print(f"[Vigil] Email not configured — OTP for {to_email}: {otp_code}")
+        return
+
+    subject = "Vigil — Verify your email"
+    body = f"""Hi {username},
+
+Your Vigil verification code is:
+
+    {otp_code}
+
+This code expires in 10 minutes. Enter it on the verification page to activate your account.
+
+If you didn't create a Vigil account, you can safely ignore this email.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Vigil — Always watching. Always reporting.""".strip()
+
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = SENDER_EMAIL
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+
+        print(f"[Vigil] OTP email sent to {to_email}")
+    except Exception as e:
+        print(f"[Vigil] Failed to send OTP email: {e}")
+
+
 def should_alert(scores: dict, threshold: float) -> bool:
     """
     Returns True if any score is below the threshold.

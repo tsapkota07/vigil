@@ -1,4 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 
 const scoreStyle = (score) => {
   if (score >= 80) return { color: 'text-green-400', ring: 'border-green-500/30 bg-green-500/10', tag: 'Healthy',  tagColor: 'bg-green-500/10 text-green-400' }
@@ -22,6 +23,7 @@ const CATEGORY_LABELS = {
 export default function AuditResults() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { isLoggedIn } = useAuth()
   const { result, url } = location.state || {}
 
   // Guard — if landed here directly with no data, send back home
@@ -32,6 +34,11 @@ export default function AuditResults() {
 
   const { scores, issues, ai_summary } = result
   const displayUrl = url || result.url
+
+  const goToSchedule = () => {
+    if (!isLoggedIn) { navigate('/login'); return }
+    navigate('/settings', { state: { url: displayUrl } })
+  }
 
   const scoreDefs = [
     { key: 'performance',   label: 'Performance' },
@@ -68,13 +75,13 @@ export default function AuditResults() {
           <button onClick={() => navigate('/dashboard', { state: { url: displayUrl } })} className="border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-4 py-2 rounded-lg transition-all">
             Dashboard
           </button>
-          <button onClick={() => navigate('/settings', { state: { url: displayUrl } })} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          <button onClick={goToSchedule} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
             Schedule Monitoring
           </button>
         </div>
       </nav>
 
-      <div className="relative z-10 max-w-4xl mx-auto px-6 py-10">
+<div className="relative z-10 max-w-4xl mx-auto px-6 py-10">
 
         {/* Header */}
         <div className="mb-8">
@@ -136,7 +143,7 @@ export default function AuditResults() {
           </div>
           <div className="flex gap-3 flex-shrink-0">
             <button onClick={() => navigate('/dashboard', { state: { url: displayUrl } })} className="border border-white/10 hover:border-white/25 text-[#8899aa] text-sm px-4 py-2 rounded-lg transition-all">View Trends</button>
-            <button onClick={() => navigate('/settings', { state: { url: displayUrl } })} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">Schedule → Every 6hrs</button>
+            <button onClick={goToSchedule} className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">Schedule → Every 6hrs</button>
           </div>
         </div>
 
