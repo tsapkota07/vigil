@@ -1,6 +1,6 @@
-# Vigil
+# SATsec
 
-**Vigil** is an automated website monitoring platform built during **HackYSU 2026**.
+**SATsec** is an automated website monitoring platform built during **HackYSU 2026**.
 
 The system continuously audits websites across four critical dimensions:
 
