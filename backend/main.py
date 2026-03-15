@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import json
@@ -15,7 +16,8 @@ from audit import run_audit
 from alerts import send_alert, should_alert, send_reset_email, send_otp_email
 from scheduler import start_scheduler, add_scheduled_audit, remove_scheduled_audit, list_scheduled_jobs
 import auth as auth_utils
-import anthropic
+import boto3
+import json
 
 # ─────────────────────────────────────────
 # APP SETUP
@@ -42,6 +44,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """
+    Catch-all handler so unhandled server errors are returned as a proper
+    JSON response that travels through the CORS middleware's send wrapper.
+    Without this, Starlette's ServerErrorMiddleware intercepts the exception
+    before CORS headers are applied, causing browsers to report a CORS error
+    instead of the actual 500.
+    """
+    print(f"[Vigil] Unhandled error on {request.method} {request.url.path}: "
+          f"{type(exc).__name__}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 
 # ─────────────────────────────────────────
@@ -147,13 +165,20 @@ Be direct and professional. Do not use bullet points.
     """.strip()
 
     try:
-        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        message = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
+        client = boto3.client("bedrock-runtime", region_name="us-east-2")
+        body = json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 200,
+            "messages": [{"role": "user", "content": prompt}],
+        })
+        response = client.invoke_model(
+            modelId="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+            contentType="application/json",
+            accept="application/json",
+            body=body,
         )
-        return message.content[0].text
+        result = json.loads(response["body"].read())
+        return result["content"][0]["text"]
     except Exception as e:
         print(f"[Vigil] AI summary error ({type(e).__name__}): {e}")
         return "AI summary could not be generated at this time."
@@ -199,7 +224,9 @@ def signup(body: SignupRequest):
         if existing_by_username:
             if existing_by_username.email_verified:
                 raise HTTPException(status_code=409, detail="Username already taken")
-            # Unverified stale registration — clean it up and allow re-registration
+            # Unverified stale registration — clean it up and allow re-registration.
+            # Must delete child rows first to avoid FK constraint errors on PostgreSQL.
+            session.query(AuditResult).filter(AuditResult.user_id == existing_by_username.id).delete()
             session.query(OtpCode).filter(OtpCode.user_id == existing_by_username.id).delete()
             session.delete(existing_by_username)
             session.flush()
@@ -208,7 +235,8 @@ def signup(body: SignupRequest):
         if existing_by_email:
             if existing_by_email.email_verified:
                 raise HTTPException(status_code=409, detail="Email already registered")
-            # Unverified stale registration — clean it up and allow re-registration
+            # Unverified stale registration — clean it up and allow re-registration.
+            session.query(AuditResult).filter(AuditResult.user_id == existing_by_email.id).delete()
             session.query(OtpCode).filter(OtpCode.user_id == existing_by_email.id).delete()
             session.delete(existing_by_email)
             session.flush()
@@ -678,6 +706,11 @@ def run_scheduled_audit(url: str):
 
 @app.on_event("startup")
 def startup():
+    # Log CORS origins so they can be verified in App Runner logs
+    print(f"[Vigil] Allowed CORS origins: {_allowed_origins}")
+
+    print("[Vigil] AI summaries using AWS Bedrock (IAM role auth)")
+
     start_scheduler()
 
     with get_session() as session:
