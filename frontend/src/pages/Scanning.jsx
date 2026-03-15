@@ -10,7 +10,7 @@ const steps = [
   { label: 'Checking SEO meta tags and structure...', duration: 900 },
   { label: 'Running accessibility scan...', duration: 1100 },
   { label: 'Checking security headers...', duration: 700 },
-  { label: 'Generating AI summary...', duration: 1200 },
+ // { label: 'Generating AI summary...', duration: 1200 },
   { label: 'Compiling results...', duration: 500 },
 ]
 

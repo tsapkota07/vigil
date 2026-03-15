@@ -36,7 +36,6 @@ export default function AuditResults() {
   const displayUrl = url || result.url
 
   const goToSchedule = () => {
-    if (!isLoggedIn) { navigate('/login'); return }
     navigate('/settings', { state: { url: displayUrl } })
   }
 
@@ -106,15 +105,7 @@ export default function AuditResults() {
           })}
         </div>
 
-        {/* AI Summary */}
-        {ai_summary && (
-          <div className="bg-purple-500/[0.06] border border-purple-500/20 rounded-2xl p-6 mb-4">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono text-xs px-3 py-1 rounded-md tracking-wider">AI SUMMARY</span>
-            </div>
-            <p className="text-sm text-[#c8d8e8] leading-7 font-light">{ai_summary}</p>
-          </div>
-        )}
+    
 
         {/* Issues — grouped by category */}
         {issueEntries.length > 0 && (

@@ -16,8 +16,6 @@ from audit import run_audit
 from alerts import send_alert, should_alert, send_reset_email, send_otp_email
 from scheduler import start_scheduler, add_scheduled_audit, remove_scheduled_audit, list_scheduled_jobs
 import auth as auth_utils
-import boto3
-import json
 
 # ─────────────────────────────────────────
 # APP SETUP
@@ -142,46 +140,7 @@ def require_auth(identity: dict = Depends(get_identity)) -> dict:
 # ─────────────────────────────────────────
 
 def generate_ai_summary(url: str, scores: dict, issues: list) -> str:
-    issues_text = "\n".join([f"- {i}" for i in issues[:10]])
-
-    prompt = f"""
-You are a web auditing assistant. A site audit was just completed.
-
-Site: {url}
-
-Scores (out of 100):
-- Performance: {scores['performance']}
-- SEO: {scores['seo']}
-- Accessibility (ADA/WCAG): {scores['accessibility']}
-- Security: {scores['security']}
-- Overall: {scores['overall']}
-
-Issues found:
-{issues_text}
-
-Write a 2-3 sentence plain English summary for a non-technical client or business owner.
-Flag any scores under 70 as urgent. Mention ADA/legal risk if accessibility is low.
-Be direct and professional. Do not use bullet points.
-    """.strip()
-
-    try:
-        client = boto3.client("bedrock-runtime", region_name="us-east-2")
-        body = json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 200,
-            "messages": [{"role": "user", "content": prompt}],
-        })
-        response = client.invoke_model(
-            modelId="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
-            contentType="application/json",
-            accept="application/json",
-            body=body,
-        )
-        result = json.loads(response["body"].read())
-        return result["content"][0]["text"]
-    except Exception as e:
-        print(f"[Vigil] AI summary error ({type(e).__name__}): {e}")
-        return "AI summary could not be generated at this time."
+    return "AI summary coming soon."
 
 
 # ─────────────────────────────────────────
@@ -709,7 +668,10 @@ def startup():
     # Log CORS origins so they can be verified in App Runner logs
     print(f"[Vigil] Allowed CORS origins: {_allowed_origins}")
 
-    print("[Vigil] AI summaries using AWS Bedrock (IAM role auth)")
+    if os.getenv("ANTHROPIC_API_KEY"):
+        print("[Vigil] ANTHROPIC_API_KEY is set — AI summaries enabled")
+    else:
+        print("[Vigil] WARNING: ANTHROPIC_API_KEY is not set — AI summaries will be disabled")
 
     start_scheduler()
 
