@@ -2,9 +2,14 @@ from sqlalchemy import create_engine, Integer, Column, String, Float, DateTime, 
 from sqlalchemy.orm import declarative_base, Session
 from sqlalchemy import text
 import datetime
+import os
 
-DATABASE_URL = "sqlite:///./vigil.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Use DATABASE_URL from environment (RDS on prod, SQLite for local dev)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./vigil.db")
+
+# connect_args is SQLite-specific — not valid for PostgreSQL
+_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=_connect_args)
 Base = declarative_base()
 
 

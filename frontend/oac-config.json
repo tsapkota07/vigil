@@ -1,0 +1,7 @@
+{
+  "Name": "vigil-oac",
+  "Description": "OAC for Vigil frontend",
+  "SigningProtocol": "sigv4",
+  "SigningBehavior": "always",
+  "OriginAccessControlOriginType": "s3"
+}

@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import json
@@ -15,7 +16,8 @@ from audit import run_audit
 from alerts import send_alert, should_alert, send_reset_email, send_otp_email
 from scheduler import start_scheduler, add_scheduled_audit, remove_scheduled_audit, list_scheduled_jobs
 import auth as auth_utils
-import anthropic
+import boto3
+import json
 
 # ─────────────────────────────────────────
 # APP SETUP
@@ -27,18 +29,37 @@ app = FastAPI(
     version="1.0.0"
 )
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+# Build allowed origins from FRONTEND_URL plus local dev origins.
+# IMPORTANT: allow_origins must never be ["*"] when allow_credentials=True —
+# browsers reject that combination and omit the CORS header entirely.
+_allowed_origins = list({FRONTEND_URL, "http://localhost:5173", "http://localhost:3000"})
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """
+    Catch-all handler so unhandled server errors are returned as a proper
+    JSON response that travels through the CORS middleware's send wrapper.
+    Without this, Starlette's ServerErrorMiddleware intercepts the exception
+    before CORS headers are applied, causing browsers to report a CORS error
+    instead of the actual 500.
+    """
+    print(f"[Vigil] Unhandled error on {request.method} {request.url.path}: "
+          f"{type(exc).__name__}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 
 # ─────────────────────────────────────────
@@ -121,9 +142,6 @@ def require_auth(identity: dict = Depends(get_identity)) -> dict:
 # ─────────────────────────────────────────
 
 def generate_ai_summary(url: str, scores: dict, issues: list) -> str:
-    if not anthropic_client:
-        return "AI summary unavailable — set ANTHROPIC_API_KEY environment variable."
-
     issues_text = "\n".join([f"- {i}" for i in issues[:10]])
 
     prompt = f"""
@@ -147,14 +165,22 @@ Be direct and professional. Do not use bullet points.
     """.strip()
 
     try:
-        message = anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}]
+        client = boto3.client("bedrock-runtime", region_name="us-east-2")
+        body = json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 200,
+            "messages": [{"role": "user", "content": prompt}],
+        })
+        response = client.invoke_model(
+            modelId="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+            contentType="application/json",
+            accept="application/json",
+            body=body,
         )
-        return message.content[0].text
+        result = json.loads(response["body"].read())
+        return result["content"][0]["text"]
     except Exception as e:
-        print(f"[Vigil] AI summary error: {e}")
+        print(f"[Vigil] AI summary error ({type(e).__name__}): {e}")
         return "AI summary could not be generated at this time."
 
 
@@ -194,10 +220,26 @@ def signup(body: SignupRequest):
         raise HTTPException(status_code=400, detail="Invalid email address")
 
     with get_session() as session:
-        if session.query(User).filter(User.username == username).first():
-            raise HTTPException(status_code=409, detail="Username already taken")
-        if session.query(User).filter(User.email == email).first():
-            raise HTTPException(status_code=409, detail="Email already registered")
+        existing_by_username = session.query(User).filter(User.username == username).first()
+        if existing_by_username:
+            if existing_by_username.email_verified:
+                raise HTTPException(status_code=409, detail="Username already taken")
+            # Unverified stale registration — clean it up and allow re-registration.
+            # Must delete child rows first to avoid FK constraint errors on PostgreSQL.
+            session.query(AuditResult).filter(AuditResult.user_id == existing_by_username.id).delete()
+            session.query(OtpCode).filter(OtpCode.user_id == existing_by_username.id).delete()
+            session.delete(existing_by_username)
+            session.flush()
+
+        existing_by_email = session.query(User).filter(User.email == email).first()
+        if existing_by_email:
+            if existing_by_email.email_verified:
+                raise HTTPException(status_code=409, detail="Email already registered")
+            # Unverified stale registration — clean it up and allow re-registration.
+            session.query(AuditResult).filter(AuditResult.user_id == existing_by_email.id).delete()
+            session.query(OtpCode).filter(OtpCode.user_id == existing_by_email.id).delete()
+            session.delete(existing_by_email)
+            session.flush()
 
         user = User(
             username=username,
@@ -664,6 +706,11 @@ def run_scheduled_audit(url: str):
 
 @app.on_event("startup")
 def startup():
+    # Log CORS origins so they can be verified in App Runner logs
+    print(f"[Vigil] Allowed CORS origins: {_allowed_origins}")
+
+    print("[Vigil] AI summaries using AWS Bedrock (IAM role auth)")
+
     start_scheduler()
 
     with get_session() as session:
