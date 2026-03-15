@@ -42,8 +42,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
 
 # ─────────────────────────────────────────
@@ -126,9 +124,6 @@ def require_auth(identity: dict = Depends(get_identity)) -> dict:
 # ─────────────────────────────────────────
 
 def generate_ai_summary(url: str, scores: dict, issues: list) -> str:
-    if not anthropic_client:
-        return "AI summary unavailable — set ANTHROPIC_API_KEY environment variable."
-
     issues_text = "\n".join([f"- {i}" for i in issues[:10]])
 
     prompt = f"""
@@ -152,14 +147,15 @@ Be direct and professional. Do not use bullet points.
     """.strip()
 
     try:
-        message = anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        message = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
             max_tokens=200,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": prompt}],
         )
         return message.content[0].text
     except Exception as e:
-        print(f"[Vigil] AI summary error: {e}")
+        print(f"[Vigil] AI summary error ({type(e).__name__}): {e}")
         return "AI summary could not be generated at this time."
 
 
