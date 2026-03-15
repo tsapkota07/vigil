@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { createSchedule } from '../api'
 import { useAuth } from '../contexts/AuthContext'
-import AuthModal from '../components/AuthModal'
 
 const SCHEDULE_HOURS = { '6h': 6, 'daily': 24, 'weekly': 168 }
 
@@ -18,7 +17,6 @@ export default function Settings() {
   const [saved, setSaved]         = useState(false)
   const [saving, setSaving]       = useState(false)
   const [error, setError]         = useState(null)
-  const [authModal, setAuthModal] = useState(!isLoggedIn)
 
   const handleSave = async () => {
     setSaving(true)
@@ -128,18 +126,37 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Email */}
-        <div className="bg-white/[0.025] border border-white/[0.06] rounded-2xl p-6 mb-6">
-          <p className="text-xs font-mono text-[#8899aa] uppercase tracking-widest mb-6">Alert Email</p>
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="you@agency.com"
-            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-[#e8edf5] placeholder-[#3a4f63] outline-none focus:border-blue-500/50 transition-colors font-mono"
-          />
-          <p className="text-xs text-[#3a5068] font-mono mt-3">// alerts will be sent to this address when scores drop</p>
-        </div>
+        {/* Email / Sign-up CTA */}
+        {isLoggedIn ? (
+          <div className="bg-white/[0.025] border border-white/[0.06] rounded-2xl p-6 mb-6">
+            <p className="text-xs font-mono text-[#8899aa] uppercase tracking-widest mb-6">Alert Email</p>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="you@agency.com"
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-[#e8edf5] placeholder-[#3a4f63] outline-none focus:border-blue-500/50 transition-colors font-mono"
+            />
+            <p className="text-xs text-[#3a5068] font-mono mt-3">// alerts will be sent to this address when scores drop</p>
+          </div>
+        ) : (
+          <div className="bg-blue-500/[0.06] border border-blue-500/20 rounded-2xl p-6 mb-6 text-center">
+            <p className="text-sm text-[#c8d8e8] mb-1">Sign up to activate monitoring</p>
+            <p className="text-xs text-[#4a6070] font-mono mb-4">// your schedule selection will be saved</p>
+            <button
+              onClick={() => navigate('/register', { state: { url } })}
+              className="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
+            >
+              Sign Up
+            </button>
+            <button
+              onClick={() => navigate('/login', { state: { url } })}
+              className="ml-3 border border-white/10 hover:border-white/25 text-[#8899aa] hover:text-[#e8edf5] text-sm px-6 py-2.5 rounded-xl transition-all"
+            >
+              Log In
+            </button>
+          </div>
+        )}
 
         {/* Error */}
         {error && (
@@ -148,32 +165,29 @@ export default function Settings() {
           </div>
         )}
 
-        {/* Save */}
-        <button
-          onClick={handleSave}
-          disabled={saving || !url}
-          className={`w-full py-4 rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-            saved
-              ? 'bg-green-500/20 border border-green-500/30 text-green-400'
-              : 'bg-blue-500 hover:bg-blue-600 text-white'
-          }`}
-        >
-          {saving ? 'Saving...' : saved ? '✓ Settings Saved — Monitoring Active' : 'Save & Start Monitoring'}
-        </button>
+        {/* Save — only for logged-in users */}
+        {isLoggedIn && (
+          <>
+            <button
+              onClick={handleSave}
+              disabled={saving || !url}
+              className={`w-full py-4 rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                saved
+                  ? 'bg-green-500/20 border border-green-500/30 text-green-400'
+                  : 'bg-blue-500 hover:bg-blue-600 text-white'
+              }`}
+            >
+              {saving ? 'Saving...' : saved ? '✓ Settings Saved — Monitoring Active' : 'Save & Start Monitoring'}
+            </button>
 
-        {!url && (
-          <p className="text-center text-xs text-red-400 font-mono mt-3">// no site selected — run an audit first</p>
+            {!url && (
+              <p className="text-center text-xs text-red-400 font-mono mt-3">// no site selected — run an audit first</p>
+            )}
+          </>
         )}
 
         <p className="text-center text-xs text-[#2e4050] font-mono mt-6">// Vigil will run its first scan within the next scheduled window</p>
       </div>
-
-      {authModal && (
-        <AuthModal
-          onClose={() => navigate(-1)}
-          onSuccess={() => setAuthModal(false)}
-        />
-      )}
     </div>
   )
 }
