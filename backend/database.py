@@ -10,11 +10,21 @@ Base = declarative_base()
 
 class User(Base):
     __tablename__ = "users"
-    id            = Column(Integer, primary_key=True, index=True)
-    username      = Column(String, unique=True, index=True, nullable=False)
-    email         = Column(String, unique=True, index=True, nullable=False)
-    password_hash = Column(String, nullable=False)
-    created_at    = Column(DateTime, default=datetime.datetime.utcnow)
+    id             = Column(Integer, primary_key=True, index=True)
+    username       = Column(String, unique=True, index=True, nullable=False)
+    email          = Column(String, unique=True, index=True, nullable=False)
+    password_hash  = Column(String, nullable=False)
+    email_verified = Column(Integer, default=0)
+    created_at     = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class OtpCode(Base):
+    __tablename__ = "otp_codes"
+    id         = Column(Integer, primary_key=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    code       = Column(String, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used       = Column(Integer, default=0)
 
 
 class PasswordResetToken(Base):
@@ -65,6 +75,7 @@ def _migrate():
         "ALTER TABLE audit_results ADD COLUMN user_id INTEGER NULL",
         "ALTER TABLE audit_results ADD COLUMN session_id TEXT NULL",
         "ALTER TABLE scheduled_audits ADD COLUMN user_id INTEGER NULL",
+        "ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0",
     ]
     with engine.connect() as conn:
         for sql in migrations:

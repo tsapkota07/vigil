@@ -20,6 +20,13 @@ export default function Login() {
       login(token, user)
       navigate('/dashboard')
     } catch (err) {
+      if (err.unverified) {
+        // Email not yet verified — backend sent a fresh OTP; go to verify page
+        navigate('/verify-otp', {
+          state: { userId: err.unverified.userId, email: err.unverified.email, redirectTo: '/dashboard' }
+        })
+        return
+      }
       setError(err.message)
     } finally {
       setLoading(false)

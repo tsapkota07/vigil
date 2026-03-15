@@ -1,11 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { signup } from '../api'
-import { useAuth } from '../contexts/AuthContext'
 
 export default function Register() {
   const navigate  = useNavigate()
-  const { login } = useAuth()
   const [username,  setUsername]  = useState('')
   const [email,     setEmail]     = useState('')
   const [password,  setPassword]  = useState('')
@@ -17,9 +15,8 @@ export default function Register() {
     setError(null)
     setLoading(true)
     try {
-      const { token, user } = await signup(username, email, password)
-      login(token, user)
-      navigate('/dashboard')
+      const { user_id, email: confirmedEmail } = await signup(username, email, password)
+      navigate('/verify-otp', { state: { userId: user_id, email: confirmedEmail } })
     } catch (err) {
       setError(err.message)
     } finally {

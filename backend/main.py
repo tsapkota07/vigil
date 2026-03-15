@@ -1,17 +1,18 @@
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import json
 import os
 import datetime
+import random
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from database import get_session, AuditResult, ScheduledAudit, User, PasswordResetToken
+from database import get_session, AuditResult, ScheduledAudit, User, PasswordResetToken, OtpCode
 from audit import run_audit
-from alerts import send_alert, should_alert, send_reset_email
+from alerts import send_alert, should_alert, send_reset_email, send_otp_email
 from scheduler import start_scheduler, add_scheduled_audit, remove_scheduled_audit, list_scheduled_jobs
 import auth as auth_utils
 import anthropic
@@ -68,6 +69,23 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+class VerifyOtpRequest(BaseModel):
+    user_id: int
+    code: str
+
+class ResendOtpRequest(BaseModel):
+    user_id: int
+
+class ImportAuditItem(BaseModel):
+    url: str
+    scores: dict
+    issues_flat: List[str] = []
+    ai_summary: Optional[str] = None
+    created_at: Optional[str] = None
+
+class ImportAuditsRequest(BaseModel):
+    audits: List[ImportAuditItem]
 
 
 # ─────────────────────────────────────────
@@ -144,6 +162,24 @@ Be direct and professional. Do not use bullet points.
 # AUTH ROUTES
 # ─────────────────────────────────────────
 
+def _generate_otp() -> str:
+    return f"{random.randint(0, 999999):06d}"
+
+
+def _create_otp(session, user_id: int) -> str:
+    """Invalidate old OTPs, generate a new one, persist it, return the code."""
+    session.query(OtpCode).filter(OtpCode.user_id == user_id, OtpCode.used == 0).update({"used": 1})
+    code = _generate_otp()
+    otp = OtpCode(
+        user_id=user_id,
+        code=code,
+        expires_at=datetime.datetime.utcnow() + datetime.timedelta(minutes=10),
+    )
+    session.add(otp)
+    session.commit()
+    return code
+
+
 @app.post("/auth/signup")
 def signup(body: SignupRequest):
     username = body.username.strip()
@@ -166,14 +202,58 @@ def signup(body: SignupRequest):
         user = User(
             username=username,
             email=email,
-            password_hash=auth_utils.hash_password(password)
+            password_hash=auth_utils.hash_password(password),
+            email_verified=0,
         )
         session.add(user)
         session.commit()
         session.refresh(user)
 
+        code = _create_otp(session, user.id)
+
+    send_otp_email(to_email=email, username=username, otp_code=code)
+    return {"user_id": user.id, "email": email, "message": "Verification code sent to your email"}
+
+
+@app.post("/auth/verify-otp")
+def verify_otp(body: VerifyOtpRequest):
+    with get_session() as session:
+        otp = session.query(OtpCode).filter(
+            OtpCode.user_id == body.user_id,
+            OtpCode.used == 0,
+        ).order_by(OtpCode.id.desc()).first()
+
+        if not otp:
+            raise HTTPException(status_code=400, detail="No active verification code found")
+        if otp.expires_at < datetime.datetime.utcnow():
+            raise HTTPException(status_code=400, detail="Verification code has expired")
+        if otp.code != body.code.strip():
+            raise HTTPException(status_code=400, detail="Incorrect verification code")
+
+        otp.used = 1
+        user = session.query(User).filter(User.id == body.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.email_verified = 1
+        session.commit()
+
         token = auth_utils.create_access_token(user.id, user.username)
         return {"token": token, "user": {"id": user.id, "username": user.username, "email": user.email}}
+
+
+@app.post("/auth/resend-otp")
+def resend_otp(body: ResendOtpRequest):
+    with get_session() as session:
+        user = session.query(User).filter(User.id == body.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.email_verified:
+            raise HTTPException(status_code=400, detail="Email already verified")
+
+        code = _create_otp(session, user.id)
+
+    send_otp_email(to_email=user.email, username=user.username, otp_code=code)
+    return {"message": "New verification code sent"}
 
 
 @app.post("/auth/login")
@@ -189,6 +269,15 @@ def login(body: LoginRequest):
         )
         if not user or not auth_utils.verify_password(password, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid username/email or password")
+
+        if not user.email_verified:
+            # Resend OTP and tell frontend to redirect to verify page
+            code = _create_otp(session, user.id)
+            send_otp_email(to_email=user.email, username=user.username, otp_code=code)
+            raise HTTPException(
+                status_code=403,
+                detail=f"EMAIL_NOT_VERIFIED:{user.id}:{user.email}"
+            )
 
         token = auth_utils.create_access_token(user.id, user.username)
         return {"token": token, "user": {"id": user.id, "username": user.username, "email": user.email}}
@@ -291,25 +380,67 @@ def trigger_audit(request: AuditRequest, identity: dict = Depends(get_identity))
 
     result["ai_summary"] = generate_ai_summary(url, result["scores"], result["issues_flat"])
 
-    with get_session() as session:
-        audit_record = AuditResult(
-            url=url,
-            performance_score=result["scores"]["performance"],
-            seo_score=result["scores"]["seo"],
-            accessibility_score=result["scores"]["accessibility"],
-            security_score=result["scores"]["security"],
-            overall_score=result["scores"]["overall"],
-            issues=json.dumps(result["issues_flat"]),
-            ai_summary=result["ai_summary"],
-            user_id=identity["user_id"],
-            session_id=identity["session_id"],
-        )
-        session.add(audit_record)
-        session.commit()
-        session.refresh(audit_record)
-        result["id"] = audit_record.id
+    # Only persist to DB for authenticated users — guests store results in their browser
+    if identity["user_id"]:
+        with get_session() as session:
+            audit_record = AuditResult(
+                url=url,
+                performance_score=result["scores"]["performance"],
+                seo_score=result["scores"]["seo"],
+                accessibility_score=result["scores"]["accessibility"],
+                security_score=result["scores"]["security"],
+                overall_score=result["scores"]["overall"],
+                issues=json.dumps(result["issues_flat"]),
+                ai_summary=result["ai_summary"],
+                user_id=identity["user_id"],
+                session_id=None,
+            )
+            session.add(audit_record)
+            session.commit()
+            session.refresh(audit_record)
+            result["id"] = audit_record.id
+    else:
+        result["id"] = None
 
     return result
+
+
+@app.post("/audit/import")
+def import_audits(request: ImportAuditsRequest, identity: dict = Depends(require_auth)):
+    """Import guest audits (stored in browser) into the authenticated user's account."""
+    imported = 0
+    with get_session() as session:
+        for item in request.audits:
+            url = item.url.strip()
+            if not url.startswith("http"):
+                url = "https://" + url
+
+            created_at = datetime.datetime.utcnow()
+            if item.created_at:
+                try:
+                    created_at = datetime.datetime.fromisoformat(item.created_at.replace("Z", "+00:00")).replace(tzinfo=None)
+                except Exception:
+                    pass
+
+            audit_record = AuditResult(
+                url=url,
+                performance_score=item.scores.get("performance", 0),
+                seo_score=item.scores.get("seo", 0),
+                accessibility_score=item.scores.get("accessibility", 0),
+                security_score=item.scores.get("security", 0),
+                overall_score=item.scores.get("overall", 0),
+                issues=json.dumps(item.issues_flat),
+                ai_summary=item.ai_summary,
+                user_id=identity["user_id"],
+                session_id=None,
+                created_at=created_at,
+            )
+            session.add(audit_record)
+            imported += 1
+
+        session.commit()
+
+    return {"imported": imported}
 
 
 @app.get("/history")
